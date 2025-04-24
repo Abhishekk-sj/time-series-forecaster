@@ -1,1 +1,6 @@
-
+# backend/requirements.txt
+Flask
+pandas
+numpy
+gunicorn # Required for production server on Render
+Flask-Cors # Required to handle requests from the frontend
