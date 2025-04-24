@@ -1,1 +1,24 @@
+# .gitignore at the root of time-series-forecaster/
 
+# Python environments and cache
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+
+# Flask specific
+instance/
+uploads/ # Ignore the temporary uploads directory
+
+# Frontend directories managed by npm/yarn
+frontend/node_modules/
+frontend/build/ # Ignore the built frontend static files (Render will build them)
+
+# Editor specific files
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+Thumbs.db
