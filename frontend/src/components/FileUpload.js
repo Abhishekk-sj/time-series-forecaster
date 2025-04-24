@@ -4,7 +4,7 @@ import axios from 'axios'; // For making HTTP requests
 
 // IMPORTANT: Replace with your actual Render backend URL
 // Example: https://your-backend-service.onrender.com
-const BACKEND_URL = 'YOUR_RENDER_BACKEND_URL'; // <-- *** REPLACE THIS ***
+const BACKEND_URL = 'https://time-series-forecaster-backend.onrender.com/'; // <-- *** REPLACE THIS ***
 
 function FileUpload({ onFileUploadSuccess }) {
   const [selectedFile, setSelectedFile] = useState(null);
@@ -29,7 +29,7 @@ function FileUpload({ onFileUploadSuccess }) {
     }
 
     // Basic check for the placeholder URL
-    if (BACKEND_URL === 'YOUR_RENDER_BACKEND_URL') {
+    if (BACKEND_URL === 'https://time-series-forecaster-backend.onrender.com/') {
          setMessage('Error: Backend URL is not configured. Please update FileUpload.js.');
          console.error('Backend URL is not configured in FileUpload.js');
          return;
@@ -102,7 +102,7 @@ function FileUpload({ onFileUploadSuccess }) {
         />
         <button
           onClick={handleUpload}
-          disabled={!selectedFile || isLoading || BACKEND_URL === 'YOUR_RENDER_BACKEND_URL'}
+          disabled={!selectedFile || isLoading || BACKEND_URL === 'https://time-series-forecaster-backend.onrender.com/'}
           className={`px-6 py-2 text-white font-semibold rounded-md flex-shrink-0
             ${selectedFile && !isLoading && BACKEND_URL !== 'YOUR_RENDER_BACKEND_URL' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-400 cursor-not-allowed'}
             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50`}
