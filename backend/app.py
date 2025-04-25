@@ -9,10 +9,14 @@ from flask_cors import CORS
 app = Flask(__name__, static_folder='../frontend/build')
 
 # WARNING: Allows ALL origins during development. Restrict in production if needed.
+# CORS allows your frontend running on a different domain/port to talk to your backend.
 CORS(app)
 
 # Configuration for file uploads
 # IMPORTANT: The 'uploads' directory on Render's free tier is ephemeral.
+# Files saved here will be lost when the container restarts or scales down.
+# We'll use this for temporary checking during development, but processing
+# should ideally read directly from request.files in later phases.
 UPLOAD_FOLDER = 'uploads'
 # Ensure the upload directory exists on startup
 if not os.path.exists(UPLOAD_FOLDER):
@@ -89,87 +93,107 @@ def upload_file():
         return jsonify({"error": "Invalid file type. Please upload a CSV file."}), 400
 
 
-# --- Frontend Serving Routes ---
+    # --- Frontend Serving Routes ---
 
-# Basic / route (should ideally be hit only if static file serving fails)
-@app.route('/')
-def index():
-    """Basic route to confirm backend is running."""
-    print("Basic index route hit") # Debug log
-    return "Time Series Forecaster Backend is Running! Navigate to the frontend URL."
-
-# --- NEW STATIC SERVING ROUTES ---
-
-# Dedicated route for the root path '/' to serve index.html
-# This explicitly handles the root and should take precedence over the basic index() route
-# if placed below it, but explicit match might be more reliable.
-@app.route('/')
-def serve_root_index():
-    """Serve index.html for the root path."""
-    print("--- ENTERING SERVE ROOT INDEX FUNCTION ---") # New debug log
-
-    # The path to index.html within the static folder
-    index_html_path = os.path.join(app.static_folder, 'index.html')
-    print(f"Root path requested. Trying to serve index.html from: {index_html_path}")
-
-    # Check if the index.html file exists in the built static folder
-    if os.path.exists(index_html_path):
-         print("index.html found at expected static path for root!")
-         # Use send_from_directory to safely serve the index.html file.
-         # The second argument 'index.html' is the filename relative to the static_folder.
-         return send_from_directory(app.static_folder, 'index.html')
-    else:
-         # If index.html is not found, the frontend build likely failed
-         print("index.html NOT found at the expected static folder path for root.")
-         return "Frontend not built or configured correctly (index.html missing at root)", 404
+    # Basic / route (should ideally be hit only if static file serving fails)
+    # Keeping this here but the serve_root_index should take precedence if defined after it
+    @app.route('/')
+    def index():
+        """Basic route to confirm backend is running."""
+        # --- ADD/UPDATE THIS PRINT STATEMENT ---
+        print("--- HITTING BASIC INDEX ROUTE (Frontend Not Served) ---") # More specific debug log
+        # ---------------------------------------
+        return "Time Series Forecaster Backend is Running! Navigate to the frontend URL."
 
 
-# Catch-all route for all OTHER paths (<path:path>)
-# This route will handle requests for /static/..., /forecast, etc., but NOT the root /
-@app.route('/<path:path>')
-def serve_static_files(path):
-    """
-    Serve static files from the frontend build directory for non-root paths.
-    """
-    print("--- ENTERING SERVE STATIC FILES FUNCTION (Non-Root) ---") # New debug log
-    print(f"Attempting to serve path: /{path}")
+    # Dedicated route for the root path '/' to serve index.html
+    # PLACE THIS FUNCTION AND ITS DECORATOR *AFTER* the basic index() function
+    @app.route('/')
+    def serve_root_index():
+        """Serve index.html for the root path."""
+        # --- This should be hit if this route definition is evaluated last for '/' ---
+        print("--- ENTERING SERVE ROOT INDEX FUNCTION ---") # Debug log
+        # -------------------------------------------------
 
-    # Construct the full path to the requested file within the static folder directory
-    requested_file = os.path.join(app.static_folder, path)
-    print(f"Constructed requested file path: {requested_file}")
-
-    # Basic security check (similar to before)
-    try:
-        static_folder_abs = os.path.abspath(app.static_folder)
-        requested_file_abs = os.path.abspath(requested_file)
-        if not requested_file_abs.startswith(static_folder_abs):
-             print(f"Security check failed: {requested_file_abs} is not in {static_folder_abs}")
-             return "Forbidden", 403
-    except Exception as e:
-        print(f"Error during path normalization/check: {e}")
-        return "Internal Server Error during path check", 500
-
-    # Check if the specific requested file exists within the static folder.
-    if os.path.exists(requested_file):
-         print(f"Serving static file: {requested_file}")
-         return send_from_directory(app.static_folder, path)
-    else:
-        # If the specific file was not found, it's likely a client-side route.
-        # Serve index.html as a fallback for client-side routing.
-        print(f"Requested file not found: {requested_file}. Falling back to serving index.html for client-side routing.")
+        # The path to index.html within the static folder
         index_html_path = os.path.join(app.static_folder, 'index.html')
+        print(f"Root path requested. Trying to serve index.html from: {index_html_path}")
+
+        # Check if the index.html file exists in the built static folder
         if os.path.exists(index_html_path):
-             print("index.html found for fallback!")
+             print("index.html found at expected static path for root!")
+             # Use send_from_directory to safely serve the index.html file.
+             # The second argument 'index.html' is the filename relative to the static_folder.
              return send_from_directory(app.static_folder, 'index.html')
         else:
-             print("index.html NOT found even for fallback.")
-             return "Resource not found and fallback index.html is missing", 404
+             # If index.html is not found, the frontend build likely failed
+             print("index.html NOT found at the expected static folder path for root.")
+             return "Frontend not built or configured correctly (index.html missing at root)", 404
 
 
-# This block is primarily for running the Flask development server locally.
-# Render's production environment uses Gunicorn (configured in the Start Command)
-# and will ignore this __main__ block.
-if __name__ == '__main__':
-    print("Running Flask app locally (development mode)")
-    port = int(os.environ.get('PORT', 5000))
-    app.run(debug=True, host='0.0.0.0', port=port)
+    # Catch-all route for all OTHER paths (<path:path>)
+    # This route will handle requests for /static/..., /forecast, etc., but NOT the root /
+    # Keep this function definition *after* both '/' routes if possible, or at least after serve_root_index.
+    @app.route('/<path:path>')
+    def serve_static_files(path):
+        """
+        Serve static files from the frontend build directory for non-root paths.
+        """
+        print("--- ENTERING SERVE STATIC FILES FUNCTION (Non-Root) ---") # Debug log
+        print(f"Attempting to serve path: /{path}")
+
+        # Construct the full path to the requested file within the static folder directory
+        requested_file = os.path.join(app.static_folder, path)
+        print(f"Constructed requested file path: {requested_file}")
+
+        # Basic security check (similar to before)
+        try:
+            static_folder_abs = os.path.abspath(app.static_folder)
+            requested_file_abs = os.path.abspath(requested_file)
+            if not requested_file_abs.startswith(static_folder_abs):
+                 print(f"Security check failed: {requested_file_abs} is not in {static_folder_abs}")
+                 return "Forbidden", 403
+        except Exception as e:
+            print(f"Error during path normalization/check: {e}")
+            return "Internal Server Error during path check", 500
+
+        # Check if the specific requested file exists within the static folder.
+        if os.path.exists(requested_file):
+             print(f"Serving static file: {requested_file}")
+             return send_from_directory(app.static_folder, path)
+        else:
+            # If the specific file was not found, it's likely a client-side route.
+            # Serve index.html as a fallback for client-side routing.
+            print(f"Requested file not found: {requested_file}. Falling back to serving index.html for client-side routing.")
+            index_html_path = os.path.join(app.static_folder, 'index.html')
+            if os.path.exists(index_html_path):
+                 print("index.html found for fallback!")
+                 return send_from_directory(app.static_folder, 'index.html')
+            else:
+                 print("index.html NOT found even for fallback.")
+                 return "Resource not found and fallback index.html is missing", 404
+
+
+    # This block is primarily for running the Flask development server locally.
+    # Render's production environment uses a WSGI server like Gunicorn (configured in the Start Command)
+    # and will ignore this __main__ block.
+    if __name__ == '__main__':
+        print("Running Flask app locally (development mode)")
+        port = int(os.environ.get('PORT', 5000))
+        app.run(debug=True, host='0.0.0.0', port=port)
+    ```
+
+**Action:**
+
+1.  **Replace the entire content** of your `backend/app.py` file with the code block provided above.
+2.  **Save** the file.
+3.  Commit this change.
+4.  Push the commit to your GitHub repository.
+5.  Render will trigger a new deployment.
+
+Once the deployment is live, access your application's public URL and **check the Render runtime logs**. This time, you should see either:
+
+* `--- HITTING BASIC INDEX ROUTE (Frontend Not Served) ---` (Still hitting the basic index, which is unexpected if `serve_root_index` is defined after it).
+* **OR** `--- ENTERING SERVE ROOT INDEX FUNCTION ---` (Meaning the new dedicated route for the root was matched!).
+
+Let's see what the logs show with this explicit definition order.
