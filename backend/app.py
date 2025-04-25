@@ -172,7 +172,7 @@ def serve_static_files(path):
              print("index.html found for fallback!")
              return send_from_directory(app.static_folder, 'index.html')
          # Pay close attention to indentation here!
-         else:
+        else:
               print("index.html NOT found even for fallback.")
               return "Resource not found and fallback index.html is missing", 404
 
