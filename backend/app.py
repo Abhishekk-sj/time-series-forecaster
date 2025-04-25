@@ -186,7 +186,7 @@ def serve(path):
          # ---> >>>>>> PAY EXTREME ATTENTION TO INDENTATION ON THIS NEXT LINE <<<<<< <---
          # The 'else:' below must align *exactly* with the 'if os.path.exists(index_html_path):' above it.
          # It should be indented two levels in from the 'if path == "":' line.
-         else: # <--- This is likely the line causing the IndentationError
+        else: # <--- This is likely the line causing the IndentationError
               print("index.html NOT found even for fallback.")
               # Return a 404 error as the resource wasn't found and the fallback index.html is also missing.
               return "Resource not found and fallback index.html is missing", 404
