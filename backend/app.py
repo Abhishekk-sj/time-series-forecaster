@@ -155,7 +155,7 @@ def serve_static_files(path):
         if not requested_file_abs.startswith(static_folder_abs):
              print(f"Security check failed: {requested_file_abs} is not in {static_folder_abs}")
              return "Forbidden", 403
-        except Exception as e:
+    except Exception as e:
             print(f"Error during path normalization/check: {e}")
             return "Internal Server Error during path check", 500
 
