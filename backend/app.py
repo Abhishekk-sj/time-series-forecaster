@@ -2,6 +2,7 @@
 import os
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
+import pandas as pd # Import pandas
 
 # Initialize Flask app, telling it where to find static files after frontend build
 # '../frontend/build' is relative to the 'backend/' directory, which is Render's Root Directory
