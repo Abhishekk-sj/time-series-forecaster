@@ -61,36 +61,6 @@ def upload_file():
 
     # Basic check for file extension
     if file and file.filename.endswith('.csv'):
-        # SECURITY NOTE: Sanitize filenames properly in production to prevent directory traversal.
-        # For now, we use the original name but won't rely on the saved file's persistence.
-        filename = file.filename
-        # Construct the full path where the file will be temporarily saved
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-
-        # >>>>>> PAY EXTREME ATTENTION TO INDENTATION ON THIS 'try:' BLOCK <<<<<<
-        # The 'try:' line must be indented correctly within the 'if file and file.filename.endswith('.csv'):' block.
-        try:
-            # Temporarily save the file to the ephemeral filesystem.
-            # This file will likely be removed on container restarts.
-            # In the next phase, we will process the file content directly from request.files['file']
-            # using pandas, WITHOUT saving it to the filesystem first.
-            file.save(filepath)
-            print(f"File saved temporarily to {filepath}")
-
-            # Return a success response including the filename
-            return jsonify({
-                "message": "File uploaded successfully",
-                "filename": filename,
-                # Include the temporary server path for debugging, but frontend shouldn't rely on it
-                "server_temp_filepath": filepath
-            }), 200
-
-        # >>>>>> PAY EXTREME ATTENTION TO INDENTATION ON THIS 'except:' LINE <<<<<<
-        # The 'except Exception as e:' line must align EXACTLY with its paired 'try:' above it.
-        except Exception as e:
-            # Catch potential errors during file saving (e.g., permissions, disk full - though less likely on Render ephemeral storage)
-            print(f"Error saving file: {e}")
-            return jsonify({"error": "Failed to process file on server.", "details": str(e)}), 500
 
     else:
         # Handle cases where the uploaded file does not have a .csv extension
