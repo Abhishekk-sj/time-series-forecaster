@@ -61,36 +61,37 @@ def upload_file():
 
     # Basic check for file extension
     if file and file.filename.endswith('.csv'):
-        # SECURITY NOTE: Sanitize filenames properly in production to prevent directory traversal.
-        # For now, we use the original name but won't rely on the saved file's persistence.
-        filename = file.filename
-        # Construct the full path where the file will be temporarily saved
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-
-        # >>>>>> PAY EXTREME ATTENTION TO INDENTATION ON THIS 'try:' BLOCK <<<<<<
-        # The 'try:' line must be indented correctly within the 'if file and file.filename.endswith('.csv'):' block.
+       # --- Paste this block of code here, indented correctly under the 'if file and file.filename.endswith('.csv'):' line ---
+        # Make sure the 'try:' line below has the same indentation as the 'if file and file.filename.endswith('.csv'):' line above.
         try:
-            # Temporarily save the file to the ephemeral filesystem.
-            # This file will likely be removed on container restarts.
-            # In the next phase, we will process the file content directly from request.files['file']
-            # using pandas, WITHOUT saving it to the filesystem first.
-            file.save(filepath)
-            print(f"File saved temporarily to {filepath}")
+            # Read the CSV file content directly from the FileStorage object into a pandas DataFrame
+            # file is the FileStorage object from request.files['file']
+            # nrows=0 reads only the header row
+            # keep_default_na=False prevents pandas from interpreting 'NA' or empty strings as NaN in headers
+            df = pd.read_csv(file, nrows=0, keep_default_na=False) # Indent this line inside try:
 
-            # Return a success response including the filename
-            return jsonify({
+            # Get the list of column names from the DataFrame's index (the columns)
+            column_headers = df.columns.tolist() # Indent this line inside try:
+            print(f"Extracted column headers: {column_headers}") # Debug log on backend # Indent this line inside try:
+
+            # *** NOTE: We are NOT saving the file permanently here anymore. ***
+            # The file content is read directly from the request object.
+
+            # Return a success response including the filename AND the column headers
+            return jsonify({ # Indent this line inside try:
                 "message": "File uploaded successfully",
                 "filename": filename,
-                # Include the temporary server path for debugging, but frontend shouldn't rely on it
-                "server_temp_filepath": filepath
+                "column_headers": column_headers # Include the list of headers in the response
             }), 200
 
-        # >>>>>> PAY EXTREME ATTENTION TO INDENTATION ON THIS 'except:' LINE <<<<<<
-        # The 'except Exception as e:' line must align EXACTLY with its paired 'try:' above it.
-        except Exception as e:
-            # Catch potential errors during file saving (e.g., permissions, disk full - though less likely on Render ephemeral storage)
-            print(f"Error saving file: {e}")
-            return jsonify({"error": "Failed to process file on server.", "details": str(e)}), 500
+        # Make sure the 'except' below aligns exactly with the 'try:' above.
+        except Exception as e: # Indent this line to match the 'try:' line
+            # Catch potential errors during file reading or processing with pandas
+            print(f"Error reading or processing file with pandas: {e}") # Indent this line inside except:
+            # Return an error response
+            return jsonify({"error": "Failed to read CSV headers.", "details": str(e)}), 500 # Indent this line inside except:
+
+        # --- End of the block to paste ---
 
     else:
         # Handle cases where the uploaded file does not have a .csv extension
