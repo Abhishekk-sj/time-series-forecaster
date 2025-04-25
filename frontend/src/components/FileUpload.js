@@ -4,7 +4,7 @@ import axios from 'axios'; // For making HTTP requests
 
 // IMPORTANT: Replace with your actual Render backend URL
 // Example: https://your-backend-service.onrender.com
-const PLACEHOLDER_BACKEND_URL = 'YOUR_RENDER_BACKEND_URL_HERE'; // Keep the original placeholder value
+const PLACEHOLDER_BACKEND_URL = 'https://time-series-forecaster-backend.onrender.com/'; // Keep the original placeholder value
 const BACKEND_URL = 'https://time-series-forecaster-backend.onrender.com'; // <-- Your actual URL here
 
 function FileUpload({ onFileUploadSuccess }) {
