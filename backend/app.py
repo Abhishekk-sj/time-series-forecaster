@@ -182,8 +182,9 @@ def serve(path):
         if os.path.exists(index_html_path):
              print("index.html found for fallback!")
              return send_from_directory(app.static_folder, 'index.html')
+         # --- Indentation Error Likely Here ---
+         # The 'else' below must align with the 'if os.path.exists(index_html_path):' above it.
          else:
-              # This case means neither the specific file nor index.html was found.
               print("index.html NOT found even for fallback.")
               # Return a 404 error as the resource wasn't found and the fallback index.html is also missing.
               return "Resource not found and fallback index.html is missing", 404
