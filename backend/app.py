@@ -101,7 +101,6 @@ def upload_file():
 
 # Basic / route (should ideally be hit only if static file serving fails)
 # Keeping this here but the serve_root_index should take precedence if defined after it
-@app.route('/')
 def index():
     """Basic route to confirm backend is running."""
     print("--- HITTING BASIC INDEX ROUTE (Frontend Not Served) ---") # More specific debug log
