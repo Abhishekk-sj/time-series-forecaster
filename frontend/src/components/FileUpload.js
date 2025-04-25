@@ -1,55 +1,53 @@
 // frontend/src/components/FileUpload.js
 import React, { useState } from 'react';
-import axios from 'axios'; // For making HTTP requests
+import axios from 'axios';
 
-// IMPORTANT: Replace with your actual Render backend URL
-// Example: https://your-backend-service.onrender.com
-const PLACEHOLDER_BACKEND_URL = 'https://time-series-forecaster-backend.onrender.com/'; // Keep the original placeholder value
-const BACKEND_URL = 'https://time-series-forecaster-backend.onrender.com'; // <-- Your actual URL here
+// Define a placeholder value to check if the URL has been updated
+const PLACEHOLDER_BACKEND_URL = 'https://time-series-forecaster-backend.onrender.com/';
+// IMPORTANT: Replace the value assigned to BACKEND_URL with the actual public URL of your Render backend service
+// Example: 'https://time-series-forecaster-backend-xxxx.onrender.com'
+const BACKEND_URL = PLACEHOLDER_BACKEND_URL; // <--- *** REPLACE THIS LINE ***
 
 function FileUpload({ onFileUploadSuccess }) {
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [message, setMessage] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [message, setMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleFileChange = (event) => {
-    const file = event.target.files[0];
-    if (file && file.name.endsWith('.csv')) {
-        setSelectedFile(file);
-        setMessage(''); // Clear previous messages
-    } else {
-        setSelectedFile(null);
-        setMessage('Please select a valid CSV file.');
-    }
-  };
+  const handleFileChange = (event) => {
+    const file = event.target.files[0];
+    if (file && file.name.endsWith('.csv')) {
+        setSelectedFile(file);
+        setMessage(''); // Clear previous messages
+    } else {
+        setSelectedFile(null);
+        setMessage('Please select a valid CSV file.');
+    }
+  };
 
-  const handleUpload = async () => {
-    if (!selectedFile) {
-      setMessage('Please select a file first!');
-      return;
-    }
+  const handleUpload = async () => {
+    if (!selectedFile) {
+      setMessage('Please select a file first!');
+      return;
+    }
 
-    // Corrected check: Compare against the placeholder value
-    if (BACKEND_URL === PLACEHOLDER_BACKEND_URL) {
-         setMessage('Error: Backend URL is not configured. Please update FileUpload.js with your Render URL.');
-         console.error('Backend URL is not configured in FileUpload.js - still using placeholder.');
-         return;
-    }
+    // Check if the backend URL has been updated from the placeholder
+    if (BACKEND_URL === PLACEHOLDER_BACKEND_URL) {
+         setMessage('Error: Backend URL is not configured. Please update FileUpload.js with your Render URL.');
+         console.error('Backend URL is not configured in FileUpload.js - still using placeholder.');
+         return;
+    }
 
+    const formData = new FormData();
+    formData.append('file', selectedFile);
 
-    const formData = new FormData();
-    formData.append('file', selectedFile);
-
-    // ... (rest of the handleUpload function remains the same) ...
-
-    setIsLoading(true);
-    setMessage('Uploading...');
+    setIsLoading(true);
+    setMessage('Uploading...');
 
     try {
       const response = await axios.post(`${BACKEND_URL}/upload`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 30000
+        timeout: 30000 // 30 seconds
       });
+
       setMessage('Upload successful!');
       console.log('Upload response:', response.data);
       if (onFileUploadSuccess) {
@@ -59,7 +57,7 @@ function FileUpload({ onFileUploadSuccess }) {
       console.error('Upload failed:', error);
       let errorMessage = 'Upload failed.';
       if (error.response) {
-        errorMessage = `Upload failed: ${error.response.status} - ${error.response.data?.error || error.statusText}`;
+        errorMessage = `Upload failed: ${error.response.status} - ${error.response.data?.error || error.response.statusText}`;
       } else if (error.request) {
         errorMessage = 'Upload failed: No response from server. Is the backend running?';
       } else {
@@ -69,10 +67,9 @@ function FileUpload({ onFileUploadSuccess }) {
     } finally {
       setIsLoading(false);
     }
-  };
+  };
 
-  return (
-    // ... (rest of the component's JSX remains the same) ...
+  return (
     <div className="mt-8 p-6 bg-white rounded-lg shadow-md">
       <h2 className="text-2xl font-semibold mb-4 text-gray-700">Step 1: Upload Time Series Data</h2>
       <p className="mb-4 text-gray-600 text-sm">
@@ -92,7 +89,6 @@ function FileUpload({ onFileUploadSuccess }) {
         />
         <button
           onClick={handleUpload}
-          // Corrected disabled check: Use the placeholder comparison
           disabled={!selectedFile || isLoading || BACKEND_URL === PLACEHOLDER_BACKEND_URL}
           className={`px-6 py-2 text-white font-semibold rounded-md flex-shrink-0
             ${selectedFile && !isLoading && BACKEND_URL !== PLACEHOLDER_BACKEND_URL ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-400 cursor-not-allowed'}
