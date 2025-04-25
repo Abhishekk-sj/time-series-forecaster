@@ -61,6 +61,7 @@ def upload_file():
 
     # Basic check for file extension
     if file and file.filename.endswith('.csv'):
+        print("File is CSV, attempting to assign filename variable...") # <--- Add this print
        # --- Paste this block of code here, indented correctly under the 'if file and file.filename.endswith('.csv'):' line ---
         # Make sure the 'try:' line below has the same indentation as the 'if file and file.filename.endswith('.csv'):' line above.
         try:
@@ -86,6 +87,7 @@ def upload_file():
 
         # Make sure the 'except' below aligns exactly with the 'try:' above.
         except Exception as e: # Indent this line to match the 'try:' line
+            print("File is CSV, attempting to assign filename variable...") # <--- Add this print
             # Catch potential errors during file reading or processing with pandas
             print(f"Error reading or processing file with pandas: {e}") # Indent this line inside except:
             # Return an error response
