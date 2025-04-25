@@ -117,17 +117,18 @@ def serve(path):
     it falls back to serving the main index.html file so the frontend router can handle it.
     """
     # --- This is the absolute first line executed when this route is matched ---
-    print("--- ENTERING SERVE FUNCTION ---") # Debug log to confirm route matching
+    # If you don't see this log in Render runtime logs, the route is not being matched.
+    print("--- ENTERING SERVE FUNCTION ---")
     # ---------------------------------------------------------------------------
 
-    print(f"Attempting to serve path: /{path}") # Debug log
+    print(f"Attempting to serve path: /{path}")
     # Print the configured static folder path (should be ../frontend/build relative to backend root)
     print(f"Static folder configured as: {app.static_folder}")
 
     # Construct the full path to the requested file within the static folder directory
     # os.path.join handles different operating system path separators ('/' or '\')
     requested_file = os.path.join(app.static_folder, path)
-    print(f"Constructed requested file path: {requested_file}") # Debug log
+    print(f"Constructed requested file path: {requested_file}")
 
     # Basic security check: Ensure the constructed file path is actually located
     # inside the configured static folder to prevent directory traversal attacks.
@@ -162,7 +163,7 @@ def serve(path):
         else:
              # If index.html is not found for the root path, it usually means the frontend build failed or was not deployed correctly.
              print("index.html NOT found at the expected static folder path for root.")
-             # Return a 404 error with a specific message indicating the likely cause.
+             # Return a specific error indicating the likely cause.
              return "Frontend not built or configured correctly (index.html missing at root)", 404
 
     # Case 2: The requested path is not empty, meaning the user is requesting a specific file (e.g., /static/css/main.css, /logo.png)
@@ -182,8 +183,8 @@ def serve(path):
         if os.path.exists(index_html_path):
              print("index.html found for fallback!")
              return send_from_directory(app.static_folder, 'index.html')
-         # --- Indentation Error Likely Here ---
-         # The 'else' below must align with the 'if os.path.exists(index_html_path):' above it.
+         # --- Check Indentation Here! ---
+         # The 'else:' below must align exactly with the 'if os.path.exists(index_html_path):' above it.
          else:
               print("index.html NOT found even for fallback.")
               # Return a 404 error as the resource wasn't found and the fallback index.html is also missing.
