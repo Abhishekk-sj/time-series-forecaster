@@ -89,7 +89,7 @@ def upload_file():
         except Exception as e: # Indent this line to match the 'try:' line
             print("File is CSV, attempting to assign filename variable...") # <--- Add this print
             # Catch potential errors during file reading or processing with pandas
-            print(f"Error reading or processing file with pandas: {e}") # Indent this line inside except:
+            print(f"Error reading or processing file with pandas. Exception object: {e}") # Replace the old print line with this one
             # Return an error response
             return jsonify({"error": "Failed to read CSV headers.", "details": str(e)}), 500 # Indent this line inside except:
 
