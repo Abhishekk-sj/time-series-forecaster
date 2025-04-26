@@ -21,7 +21,7 @@ function App() {
 
   // State variable to store the forecasting results received from the backend (/forecast response)
   // This variable is not used yet, but will be in future steps.
-  const [forecastResults, setForecastResults] = useState(null); // Will be added back later
+  const [forecastResults, setForecastResults] = useState(null); // eslint-disable-next-line no-unused-vars
 
 
   // Function called by FileUpload on success
@@ -112,9 +112,7 @@ function App() {
          {/* Optional: Placeholder if columns selected but results not yet available (e.g., loading) */}
          {/* This placeholder is shown if upload is complete, file is stored, columns selected (handled by ColumnSelector's state/logic), and forecast results are not yet available */}
          {/* Note: The logic to *show* a loading indicator is now primarily within ColumnSelector */}
-         {/* {uploadInfo && uploadedFile && !forecastResults && selectedColumns && ( // Refined condition */}
          {/* Removed this block temporarily to simplify until needed */}
-         {/* )} */}
 
 
       </div>
