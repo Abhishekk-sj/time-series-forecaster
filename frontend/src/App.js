@@ -1,23 +1,48 @@
 // frontend/src/App.js
-import React, { useState } from 'react'; // Import useState hook
-import FileUpload from './components/FileUpload'; // Import the FileUpload component
+import React, { useState } from 'react'; // Import useState
+import FileUpload from './components/FileUpload'; // Import FileUpload
+import ColumnSelector from './components/ColumnSelector'; // <--- IMPORT ColumnSelector
 import './styles/index.css'; // Import your Tailwind CSS file
 
 // This is the main functional component for your application
 function App() {
   // State variable to keep track of information after a file is uploaded
-  // We initialize it to null, meaning no file has been successfully uploaded yet
+  // Will store the response from the backend's /upload endpoint (includes filename, column_headers)
   const [uploadInfo, setUploadInfo] = useState(null);
 
-  // This function will be called by the FileUpload component
-  // when a file is successfully uploaded to the backend
+  // State variable to store the user's selected columns for forecasting
+  // Will store the selections made in the ColumnSelector component
+  const [selectedColumns, setSelectedColumns] = useState(null);
+
+  // State variable to store the forecasting results received from the backend
+  const [forecastResults, setForecastResults] = useState(null); // Will be used later
+
+  // Function called by the FileUpload component when a file is successfully uploaded
   const handleFileUploadSuccess = (data) => {
       console.log("File upload successful, received data:", data);
-      // Update the state with the data received from the backend
+      // Update the state with the data received from the backend (/upload response)
       setUploadInfo(data);
-      // TODO: In the next steps, we'll use this uploadInfo to
-      // display column selection and forecasting settings
+      // Reset selected columns and results when a new file is uploaded
+      setSelectedColumns(null);
+      setForecastResults(null);
   };
+
+  // Function called by the ColumnSelector component when the user confirms selections
+  const handleColumnsSelected = (selections) => {
+      console.log("Columns selected:", selections);
+      // Store the user's selected columns in state
+      setSelectedColumns(selections);
+      // TODO: In the next step, we will use selections and uploadInfo
+      // to call the backend's forecasting API
+  };
+
+
+  // --- TODO: Add handleForecastResults function here later ---
+  // const handleForecastResults = (results) => {
+  //    console.log("Forecasting completed, received results:", results);
+  //    setForecastResults(results);
+  // };
+
 
   return (
     // Use Tailwind classes for styling - min-h-screen makes it at least full height
@@ -30,40 +55,47 @@ function App() {
           AI Time Series Forecaster
         </h1>
 
-        {/* Step 1: File Upload Section */}
-        {/* Conditional Rendering: Show FileUpload component only if no file has been successfully uploaded yet */}
-        {/* If uploadInfo is null (falsey), render FileUpload */}
+        {/* Conditional Rendering based on application state */}
+
+        {/* Case 1: File Upload is needed */}
+        {/* Show FileUpload component only if no file has been successfully uploaded yet (uploadInfo is null) */}
         {!uploadInfo && (
             <FileUpload onFileUploadSuccess={handleFileUploadSuccess} />
         )}
 
-        {/* Step 2: Upload Success Message and Placeholder for Next Steps */}
-        {/* Conditional Rendering: Show this block only if uploadInfo has data (meaning upload was successful) */}
-        {/* If uploadInfo has a value (truthy), render this block */}
-        {uploadInfo && (
-          <div className="mt-8 p-6 bg-white rounded-lg shadow-md">
-            {/* Heading for the success message */}
-            <h2 className="text-2xl font-semibold mb-4 text-gray-700">
-              File Uploaded Successfully!
-            </h2>
-            {/* Display the filename received from the backend */}
-            <p className="text-gray-600">
-              Filename: <span className="font-semibold">{uploadInfo.filename}</span>
-            </p>
-            {/* Instruction for the next step */}
-            <p className="mt-4 text-gray-600">
-              Next: Select the date, value, and aggregation columns from your data.
-            </p>
-            {/* TODO: This is where the Column Selection component will go later */}
-          </div>
+        {/* Case 2: Columns need to be selected */}
+        {/* Show ColumnSelector if uploadInfo is available (file uploaded) AND columns have NOT been selected yet (selectedColumns is null) */}
+        {uploadInfo && !selectedColumns && (
+            // Render the ColumnSelector component
+            // Pass the columnHeaders from the uploadInfo received from backend
+            // Pass the handleColumnsSelected function as a callback
+            <ColumnSelector
+                columnHeaders={uploadInfo.column_headers} // <--- Pass headers here
+                onColumnsSelected={handleColumnsSelected} // <--- Pass callback here
+            />
         )}
 
-        {/* Step 3: Display Results (Will be added later) */}
-        {/* TODO: Add component to display chart and table */}
+        {/* Case 3: Display Forecasting Results */}
+        {/* Show Results component if columns HAVE been selected AND forecast results ARE available */}
+        {/* TODO: This section will be built later */}
+        {/* {selectedColumns && forecastResults && (
+            <ForecastResults results={forecastResults} />
+        )} */}
+
+         {/* Optional: Placeholder if columns selected but results not yet available (e.g., loading) */}
+         {/* {selectedColumns && !forecastResults && (
+              <div className="mt-8 p-6 bg-white rounded-lg shadow-md">
+                   <h2 className="text-2xl font-semibold mb-4 text-gray-700">
+                     Processing Forecast...
+                   </h2>
+                   <p className="text-gray-600">Please wait while the forecast is being generated.</p>
+              </div>
+         )} */}
+
 
       </div> {/* End of container */}
     </div> // End of main background div
   );
 }
 
-export default App; // Export the component so it can be used in index.js
+export default App; // Export the component
