@@ -42,6 +42,8 @@ def upload_file():
     print("Received request to /upload") # Log server-side
 
     # Ensure the uploads folder exists (good practice even for ephemeral filesystems)
+    # We keep this for the potential temporary save if direct read fails,
+    # but the primary path will now read directly.
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
          os.makedirs(app.config['UPLOAD_FOLDER'])
          print(f"Created upload folder: {app.config['UPLOAD_FOLDER']}")
@@ -51,7 +53,7 @@ def upload_file():
         print("No 'file' part in request.files")
         return jsonify({"error": "No file part in the request"}), 400
 
-    file = request.files['file']
+    file = request.files['file'] # 'file' is a FileStorage object from Werkzeug
     print(f"Received file: {file.filename}")
 
     # If the user does not select a file, the browser submits an empty file without a filename.
@@ -61,43 +63,62 @@ def upload_file():
 
     # Basic check for file extension
     if file and file.filename.endswith('.csv'):
-        print("File is CSV, attempting to assign filename variable...") # <--- Add this print
-       # --- Paste this block of code here, indented correctly under the 'if file and file.filename.endswith('.csv'):' line ---
-        # Make sure the 'try:' line below has the same indentation as the 'if file and file.filename.endswith('.csv'):' line above.
+        # --- Debug print before assigning filename ---
+        print("File is CSV, attempting to assign filename variable...")
+
+        # >>>>> THIS LINE WAS MISSING OR MISPLACED <<<<<
+        filename = file.filename # This line assigns the filename variable!
+        # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+        # --- Debug print after assigning filename ---
+        print(f"Filename variable assigned: {filename}")
+
+        # We will attempt to read headers directly from the file object first.
+        # This filepath variable is primarily for a potential fallback save, not the main read path.
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename) # Path for potential temp save
+
         try:
+            # >>>>> THIS IS THE MAIN LOGIC TO READ HEADERS <<<<<
             # Read the CSV file content directly from the FileStorage object into a pandas DataFrame
             # file is the FileStorage object from request.files['file']
-            # nrows=0 reads only the header row
-            # keep_default_na=False prevents pandas from interpreting 'NA' or empty strings as NaN in headers
-            df = pd.read_csv(file, nrows=0, keep_default_na=False) # Indent this line inside try:
+            # nrows=0 reads only the header row, making it fast.
+            # keep_default_na=False prevents pandas from interpreting 'NA' or empty strings as NaN in headers.
+            df = pd.read_csv(file, nrows=0, keep_default_na=False)
 
             # Get the list of column names from the DataFrame's index (the columns)
-            column_headers = df.columns.tolist() # Indent this line inside try:
-            print(f"Extracted column headers: {column_headers}") # Debug log on backend # Indent this line inside try:
+            column_headers = df.columns.tolist()
 
-            # *** NOTE: We are NOT saving the file permanently here anymore. ***
-            # The file content is read directly from the request object.
+            # --- Debug print after successful header extraction ---
+            print(f"Extracted column headers: {column_headers}")
+
+            # *** NOTE: We are NOT saving the file permanently here. ***
+            # The file content was read directly from the request object.
 
             # Return a success response including the filename AND the column headers
-            return jsonify({ # Indent this line inside try:
+            # filename variable should be defined at this point
+            return jsonify({
                 "message": "File uploaded successfully",
                 "filename": filename,
-                "column_headers": column_headers # Include the list of headers in the response
+                "column_headers": column_headers # Include the list of headers
             }), 200
 
-        # Make sure the 'except' below aligns exactly with the 'try:' above.
-        except Exception as e: # Indent this line to match the 'try:' line
-            print("File is CSV, attempting to assign filename variable...") # <--- Add this print
+        except Exception as e:
+            # --- This block executes if an error occurs in the try block ---
             # Catch potential errors during file reading or processing with pandas
-            print(f"Error reading or processing file with pandas. Exception object: {e}") # Replace the old print line with this one
-            # Return an error response
-            return jsonify({"error": "Failed to read CSV headers.", "details": str(e)}), 500 # Indent this line inside except:
+            # --- Debug print showing the exception object ---
+            # This print should show the original exception caught by 'e'.
+            print(f"Error reading or processing file with pandas. Exception object: {e}") # <-- This is the correct print
 
-        # --- End of the block to paste ---
+            # Return an error response to the frontend
+            # We use str(e) to ensure the details key doesn't cause further NameErrors if e is complex.
+            # filename variable might not be reliably available here if error was before assignment,
+            # so avoid using 'filename' directly in this except block beyond basic print.
+            return jsonify({"error": "Failed to read CSV headers.", "details": str(e)}), 500
 
     else:
-        # Handle cases where the uploaded file does not have a .csv extension
+        # --- This block handles cases where the file is NOT a CSV ---
         print(f"Invalid file type uploaded: {file.filename}")
+        # filename variable is NOT defined in this else block, only file.filename
         return jsonify({"error": "Invalid file type. Please upload a CSV file."}), 400
 
 
