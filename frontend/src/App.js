@@ -14,19 +14,19 @@ function App() {
   // Will store the selections made in the ColumnSelector component
   const [selectedColumns, setSelectedColumns] = useState(null);
 
-  // State variable to store the forecasting results received from the backend
-  // This variable is not used yet, but will be in future steps.
-  // The comment below tells ESLint to ignore the 'no-unused-vars' warning specifically for this line.
-  const [forecastResults, setForecastResults] = useState(null); // This variable will be used later // eslint-disable-next-line no-unused-vars
+  // *** Removed: forecastResults state variable declaration temporary ***
+  // const [forecastResults, setForecastResults] = useState(null); // Will be added back later
+
 
   // Function called by the FileUpload component when a file is successfully uploaded
   const handleFileUploadSuccess = (data) => {
       console.log("File upload successful, received data:", data);
       // Update the state with the data received from the backend (/upload response)
       setUploadInfo(data);
-      // Reset selected columns and results when a new file is uploaded
+      // Reset selected columns when a new file is uploaded
       setSelectedColumns(null);
-      setForecastResults(null); // Reset forecast results too
+      // *** Removed: setForecastResults(null) temporary ***
+      // setForecastResults(null); // Reset forecast results too
   };
 
   // Function called by the ColumnSelector component when the user confirms selections
@@ -44,7 +44,8 @@ function App() {
   // It will receive the results data as an argument.
   // const handleForecastResults = (results) => {
   //    console.log("Forecasting completed, received results:", results);
-  //    setForecastResults(results); // This will set the forecastResults state
+  //    // Need forecastResults state here later
+  //    // setForecastResults(results);
   // };
 
 
@@ -81,12 +82,13 @@ function App() {
 
         {/* Case 3: Display Forecasting Results */}
         {/* Show Results component if columns HAVE been selected AND forecast results ARE available */}
-        {/* TODO: This section will be built later */}
+        {/* *** Removed: Conditional rendering based on forecastResults temporary *** */}
         {/* {selectedColumns && forecastResults && (
-            <ForecastResults results={forecastResults} /> // This is where forecastResults will be used
+            <ForecastResults results={forecastResults} />
         )} */}
 
          {/* Optional: Placeholder if columns selected but results not yet available (e.g., loading) */}
+         {/* *** Removed: Conditional rendering based on !forecastResults temporary *** */}
          {/* {selectedColumns && !forecastResults && (
               <div className="mt-8 p-6 bg-white rounded-lg shadow-md">
                    <h2 className="text-2xl font-semibold mb-4 text-gray-700">
