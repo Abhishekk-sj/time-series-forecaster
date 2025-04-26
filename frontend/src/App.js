@@ -14,7 +14,7 @@ function App() {
   // State variable to store the user's selected columns for forecasting
   // Will store the selections made in the ColumnSelector component
   // This is used to decide WHEN to show the next step, but its value isn't directly rendered yet.
-  const [selectedColumns, setSelectedColumns] = useState(null); // eslint-disable-next-line no-unused-vars <-- ADD THIS COMMENT
+  const [selectedColumns, setSelectedColumns] = useState(null); // eslint-disable-next-line no-unused-vars
 
   // State variable for storing the original file object received in handleFileUploadSuccess
   const [uploadedFile, setUploadedFile] = useState(null); // NEW STATE FOR FILE
@@ -43,7 +43,7 @@ function App() {
   // As forecast call is in ColumnSelector, this fn isn't strictly needed for the *flow* anymore,
   // but we'll keep setting the state for potential future use or rendering logic.
   // The comment below tells ESLint to ignore the 'no-unused-vars' warning for this function definition.
-  const handleColumnsSelected = (selections) => { // eslint-disable-next-line no-unused-vars <-- ADD THIS COMMENT
+  const handleColumnsSelected = (selections) => { // eslint-disable-next-line no-unused-vars
       console.log("Columns selected:", selections);
       // Store the user's selected columns in state
       setSelectedColumns(selections);
