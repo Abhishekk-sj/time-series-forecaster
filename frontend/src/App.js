@@ -1,7 +1,7 @@
 // frontend/src/App.js
-import React, { useState } from 'react'; // Import useState
-import FileUpload from './components/FileUpload'; // Import FileUpload
-import ColumnSelector from './components/ColumnSelector'; // <--- IMPORT ColumnSelector
+import React, { useState } from 'react'; // Import useState hook
+import FileUpload from './components/FileUpload'; // Import the FileUpload component
+import ColumnSelector from './components/ColumnSelector'; // Import the ColumnSelector component
 import './styles/index.css'; // Import your Tailwind CSS file
 
 // This is the main functional component for your application
@@ -15,7 +15,7 @@ function App() {
   const [selectedColumns, setSelectedColumns] = useState(null);
 
   // State variable to store the forecasting results received from the backend
-  const [forecastResults, setForecastResults] = useState(null); // Will be used later
+  const [forecastResults, setForecastResults] = useState(null); // Will be used later // eslint-disable-next-line no-unused-vars <-- ADD THIS COMMENT
 
   // Function called by the FileUpload component when a file is successfully uploaded
   const handleFileUploadSuccess = (data) => {
