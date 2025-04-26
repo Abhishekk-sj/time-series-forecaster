@@ -15,7 +15,9 @@ function App() {
   const [selectedColumns, setSelectedColumns] = useState(null);
 
   // State variable to store the forecasting results received from the backend
-  const [forecastResults, setForecastResults] = useState(null); // Will be used later // eslint-disable-next-line no-unused-vars <-- ADD THIS COMMENT
+  // This variable is not used yet, but will be in future steps.
+  // The comment below tells ESLint to ignore the 'no-unused-vars' warning specifically for this line.
+  const [forecastResults, setForecastResults] = useState(null); // eslint-disable-next-line no-unused-vars
 
   // Function called by the FileUpload component when a file is successfully uploaded
   const handleFileUploadSuccess = (data) => {
@@ -38,9 +40,10 @@ function App() {
 
 
   // --- TODO: Add handleForecastResults function here later ---
+  // This function will be called after the backend returns forecasting results.
   // const handleForecastResults = (results) => {
   //    console.log("Forecasting completed, received results:", results);
-  //    setForecastResults(results);
+  //    setForecastResults(results); // This will set the forecastResults state
   // };
 
 
@@ -79,7 +82,7 @@ function App() {
         {/* Show Results component if columns HAVE been selected AND forecast results ARE available */}
         {/* TODO: This section will be built later */}
         {/* {selectedColumns && forecastResults && (
-            <ForecastResults results={forecastResults} />
+            <ForecastResults results={forecastResults} /> // This is where forecastResults will be used
         )} */}
 
          {/* Optional: Placeholder if columns selected but results not yet available (e.g., loading) */}
