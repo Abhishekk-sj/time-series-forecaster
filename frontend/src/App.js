@@ -17,7 +17,7 @@ function App() {
   // State variable to store the forecasting results received from the backend
   // This variable is not used yet, but will be in future steps.
   // The comment below tells ESLint to ignore the 'no-unused-vars' warning specifically for this line.
-  const [forecastResults, setForecastResults] = useState(null); // eslint-disable-next-line no-unused-vars
+  const [forecastResults, setForecastResults] = useState(null); // This variable will be used later // eslint-disable-next-line no-unused-vars
 
   // Function called by the FileUpload component when a file is successfully uploaded
   const handleFileUploadSuccess = (data) => {
@@ -26,7 +26,7 @@ function App() {
       setUploadInfo(data);
       // Reset selected columns and results when a new file is uploaded
       setSelectedColumns(null);
-      setForecastResults(null);
+      setForecastResults(null); // Reset forecast results too
   };
 
   // Function called by the ColumnSelector component when the user confirms selections
@@ -41,6 +41,7 @@ function App() {
 
   // --- TODO: Add handleForecastResults function here later ---
   // This function will be called after the backend returns forecasting results.
+  // It will receive the results data as an argument.
   // const handleForecastResults = (results) => {
   //    console.log("Forecasting completed, received results:", results);
   //    setForecastResults(results); // This will set the forecastResults state
