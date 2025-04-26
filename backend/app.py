@@ -122,6 +122,115 @@ def upload_file():
         return jsonify({"error": "Invalid file type. Please upload a CSV file."}), 400
 
 
+@app.route('/forecast', methods=['POST'])
+def run_forecast():
+    """Receives file, column selections, and parameters, runs forecast."""
+    print("Received request to /forecast") # Log server-side
+
+    # Ensure the uploads folder exists (good practice)
+    # This is where the file might be temporarily saved if needed, though we read directly.
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+         os.makedirs(app.config['UPLOAD_FOLDER'])
+         print(f"Created upload folder: {app.config['UPLOAD_FOLDER']}")
+
+    # 1. Get the file content (sent again from frontend)
+    if 'file' not in request.files:
+        print("No 'file' part in /forecast request.files")
+        return jsonify({"error": "No file part in the request for forecasting"}), 400
+    file = request.files['file']
+    print(f"Received file for forecasting: {file.filename}")
+
+    if file.filename == '':
+         print("No selected file filename in /forecast")
+         return jsonify({"error": "No selected file for forecasting"}), 400
+
+    if not file.filename.endswith('.csv'):
+         print(f"Invalid file type for forecasting: {file.filename}")
+         return jsonify({"error": "Invalid file type for forecasting. Please upload a CSV file."}), 400
+
+
+    # 2. Get the column selections and parameters from the JSON body
+    # The frontend will send these in the request body, NOT as form data.
+    # The file content is sent as multipart/form-data, JSON as application/json.
+    # Flask's request.get_json() reads the JSON body.
+    try:
+        # Note: When sending multipart/form-data (the file) and application/json (the data)
+        # in the same request, the JSON data is typically sent under a different
+        # key in the multipart payload, or sometimes in a separate request.
+        # A simpler approach for now is to send the selections/params as form fields
+        # along with the file in a single multipart/form-data request, or send the file
+        # then the JSON in a second request. Let's assume frontend sends JSON under 'data' key.
+        # We'll refine this based on frontend implementation.
+        # For now, let's read the form data which is sent with the file in multipart.
+        selected_columns_json = request.form.get('selectedColumns') # Frontend will likely send as form field
+        forecast_periods_str = request.form.get('forecastPeriods')   # Frontend will likely send as form field
+
+        if not selected_columns_json or not forecast_periods_str:
+             print("Missing selectedColumns or forecastPeriods in form data")
+             return jsonify({"error": "Missing forecasting inputs in request."}), 400
+
+        # Parse the JSON string for selected columns
+        import json
+        try:
+            selected_columns = json.loads(selected_columns_json)
+        except json.JSONDecodeError:
+            print("Failed to parse selectedColumns JSON")
+            return jsonify({"error": "Invalid format for column selections."}), 400
+
+
+        print(f"Received selections (parsed): {selected_columns}")
+        print(f"Received forecast periods (string): {forecast_periods_str}")
+
+
+        # Basic check that required columns are present in the selections JSON
+        if not selected_columns or not all(col in selected_columns for col in ['Date Column', 'Value Column']):
+             print("Missing required column types in selections JSON")
+             return jsonify({"error": "Missing required column selections (Date and Value). Please select both."}), 400
+
+        # Basic check that forecastPeriods is a positive integer
+        try:
+            forecast_periods = int(forecast_periods_str)
+            if forecast_periods <= 0:
+                 print("Forecast periods must be positive")
+                 return jsonify({"error": "Forecast periods must be a positive integer."}), 400
+        except (ValueError, TypeError):
+             print("Forecast periods is not a valid integer")
+             return jsonify({"error": "Forecast periods must be a valid integer."}), 400
+
+        # --- TODO: Add Data Processing and Forecasting Logic Here ---
+        # - Read the full CSV data using the provided file object and selections
+        # - Select relevant columns based on user input
+        # - Perform any necessary data cleaning, aggregation (if aggregation column is provided)
+        # - Convert date column to datetime objects
+        # - Set date column as index
+        # - Apply forecasting model (e.g., ARIMA, Prophet)
+        # - Generate forecast for forecast_periods
+        # - Format results (forecasted values, confidence intervals)
+        # ------------------------------------------------------------
+
+        # >>> IMPORTANT: Add this part later once we have the forecasting logic <<<
+        # # Example of reading full data after validating inputs:
+        # file.seek(0) # Reset file pointer to the beginning before reading the full data
+        # df_full = pd.read_csv(file, keep_default_na=False)
+        # print(f"Successfully read full data for forecasting. DataFrame shape: {df_full.shape}")
+
+        # For now, just return a success message and the received inputs
+        # Replace this with actual forecast results later
+        print("Inputs received and file read successfully. Forecasting logic goes here.")
+        return jsonify({
+            "message": "Forecast request received and inputs processed",
+            "filename": file.filename,
+            "selectedColumns": selected_columns,
+            "forecastPeriods": forecast_periods,
+            # "data_rows_read": df_full.shape[0] # Add this after reading full data
+            # TODO: Add actual forecast results here
+        }), 200
+
+    except Exception as e:
+        # Catch errors during data reading or initial processing steps
+        print(f"Error processing inputs or reading full data in /forecast: {e}")
+        return jsonify({"error": "Failed to process forecasting request.", "details": str(e)}), 500
+
 # --- Frontend Serving Routes ---
 
 # Basic / route (should ideally be hit only if static file serving fails)
