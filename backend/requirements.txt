@@ -6,3 +6,4 @@ gunicorn
 Flask-Cors
 numpy
 statsmodels
+scipy
