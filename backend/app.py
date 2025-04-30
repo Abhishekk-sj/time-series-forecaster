@@ -556,7 +556,7 @@ def run_forecast():
             except Exception as e:
                 print(f"Error running or evaluating {method_name} (caught late): {e}")
                 # Ensure model result is marked as failed if error occurred anywhere in its block
-                 if method_name not in forecast_results_all_models or "error" not in forecast_results_all_models[method_name]:
+                if method_name not in forecast_results_all_models or "error" not in forecast_results_all_models[method_name]:
                       forecast_results_all_models[method_name] = {
                          "evaluation_rmse": evaluation_results.get(method_name, float('inf')),
                          "forecast_data": [],
