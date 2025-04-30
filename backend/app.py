@@ -117,7 +117,7 @@ def run_forecast():
     # --- Get inputs from form data ---
     try:
         selected_columns_json = request.form.get('selectedColumns')
-        selected_frequency_name = request.form.get('selectedFrequency') # <--- GET SELECTED FREQUENCY
+        selected_frequency_name = request.form.get('selectedFrequency')
         forecast_periods_str = request.form.get('forecastPeriods')
 
         if not selected_columns_json or not selected_frequency_name or not forecast_periods_str:
@@ -134,7 +134,6 @@ def run_forecast():
             print("Failed to parse selectedColumns JSON")
             return jsonify({"error": "Invalid format for column selections."}), 400
 
-        # Map the selected frequency name to pandas frequency code
         selected_freq_code = FREQUENCY_MAP.get(selected_frequency_name)
         if not selected_freq_code:
             print(f"Invalid selected frequency name: {selected_frequency_name}")
@@ -191,18 +190,15 @@ def run_forecast():
         # Handle initial aggregation by Date and optional Aggregation column
         if agg_col and agg_col in selected_df.columns:
              print(f"Aggregating data by Date and '{agg_col}'...")
-             # Group by Date and Aggregation column, sum the value column
              aggregated_df = selected_df.groupby([date_col, agg_col])[value_col].sum().reset_index()
              print(f"Aggregation complete. Aggregated DataFrame shape: {aggregated_df.shape}")
 
              print("Further aggregating by Date only to get a single time series...")
-             # Then aggregate by just Date to get a single time series per date
              ts_data_initial = aggregated_df.groupby(date_col)[value_col].sum().reset_index()
              print(f"Initial date-aggregated data shape: {ts_data_initial.shape}")
 
         else:
              print("No aggregation column provided or found. Aggregating by Date only.")
-             # If no aggregation column, aggregate by just Date to ensure one value per date
              ts_data_initial = selected_df[[date_col, value_col]].copy()
              ts_data_initial = ts_data_initial.groupby(date_col)[value_col].sum().reset_index()
              print(f"Initial date-aggregated data shape: {ts_data_initial.shape}")
@@ -223,14 +219,30 @@ def run_forecast():
         print(f"Resampling data to selected frequency: {selected_frequency_name} ({selected_freq_code})...")
         # Use .resample() with the selected frequency code, aggregate by sum
         # .resample() will handle potential missing periods by default (fills with NaN)
+        # Ensure index is datetime before resampling
+        ts_data_initial.index = pd.to_datetime(ts_data_initial.index)
         ts_data = ts_data_initial['Value'].resample(selected_freq_code).sum().reset_index()
 
-        # Handle NaNs introduced by resampling (e.g., fill with 0 or previous value)
-        # Filling with 0 is common for sparse data after resampling
+        # Handle NaNs introduced by resampling (e.g., fill with 0)
         ts_data['Value'].fillna(0, inplace=True) # Fill NaN values with 0
 
         # Set the resampled date column as the index again
         ts_data = ts_data.set_index('Date')
+        # Ensure the resampled index has a frequency set by resample
+        if ts_data.index.freq is None:
+             print("Warning: Resampled index frequency is None. Attempting to set it.")
+             try:
+                  ts_data.index.freq = pd.infer_freq(ts_data.index)
+                  if ts_data.index.freq is None:
+                       print("Warning: Could not infer frequency after resampling. Setting to selected code.")
+                       ts_data.index.freq = selected_freq_code # Force set freq code
+             except Exception as infer_e:
+                  print(f"Error inferring frequency after resampling: {infer_e}. Forcing selected code.")
+                  ts_data.index.freq = selected_freq_code # Force set freq code
+
+
+        # Store the final processed time series data *before* split for returning
+        historical_ts_data = ts_data.copy() # Copy for returning later
 
         print(f"Resampling complete. Final time series data shape ({selected_frequency_name}): {ts_data.shape}")
         print(f"Final time series index frequency: {ts_data.index.freq}")
@@ -239,13 +251,9 @@ def run_forecast():
         if ts_data.empty:
              return jsonify({"error": "Processed time series data is empty after cleaning and resampling."}), 400
 
-        # Determine minimum data points needed for all models
-        # ARIMA(5,1,0) needs at least 6 points (p+d+q+1, but effectively more for stability)
-        # Simple models might need fewer, but let's set a reasonable minimum like 10
-        min_data_points = 10
+        min_data_points = 10 # Minimum points needed for most models/evaluation
         if ts_data.shape[0] < min_data_points:
              return jsonify({"error": f"Not enough data points ({ts_data.shape[0]}) after resampling for forecasting. Need at least {min_data_points} historical data points at the selected frequency."}), 400
-        # Also check if enough data exists relative to forecast periods (redundant if min_data_points is > forecast_periods, but good check)
         if ts_data.shape[0] <= forecast_periods:
              return jsonify({"error": f"Number of historical data points ({ts_data.shape[0]}) after resampling is not enough to forecast {forecast_periods} periods. Need more historical data than forecast periods."}), 400
 
@@ -256,19 +264,21 @@ def run_forecast():
         train_data, test_data = ts_data[0:train_size], ts_data[train_size:]
         print(f"Train data shape: {train_data.shape}, Test data shape: {test_data.shape}")
 
-        # Ensure test set is not empty
-        if test_data.empty:
-             # If test set is empty, maybe the dataset is too small for split,
-             # or train_size is the exact length. Adjust train_size.
-             if len(ts_data) > 1: # Need at least 2 points to have a test set of size 1
-                 train_size = len(ts_data) - 1 # Use last point for test if data >= 2
+        # Ensure test set is not empty and has enough points for evaluation
+        if test_data.shape[0] == 0:
+             # If test set is empty, use a minimum size like 1 or 2 points for test if data allows
+             if len(ts_data) >= 2: # Need at least 2 points to have a test set of size 1
+                 train_size = len(ts_data) - 1 # Use last point for test
                  train_data, test_data = ts_data[0:train_size], ts_data[train_size:]
                  print(f"Adjusted split: Train data shape: {train_data.shape}, Test data shape: {test_data.shape}")
+                 if test_data.shape[0] == 0: # Re-check after adjustment
+                       print("Dataset still too small to perform train/test split for evaluation.")
+                       perform_evaluation = False
+                 else:
+                       perform_evaluation = True
              else:
-                 # Cannot perform split if data is too small
                  print("Dataset too small to perform train/test split for evaluation.")
-                 # Proceed without evaluation, or return error? For now, proceed without evaluation.
-                 perform_evaluation = False
+                 perform_evaluation = False # Disable evaluation
         else:
             perform_evaluation = True
 
@@ -279,8 +289,8 @@ def run_forecast():
         best_method = None
         lowest_rmse = np.inf
 
-        # Define models to run (only those that can be fitted/evaluated)
-        models_to_run = ['ARIMA', 'ETS', 'SMA'] # Removed WMA for simplicity initially
+        # Define models to run
+        models_to_run = ['ARIMA', 'ETS', 'SMA']
 
 
         for method_name in models_to_run:
@@ -288,225 +298,294 @@ def run_forecast():
                 print(f"\nRunning and evaluating {method_name}...")
                 model_forecast_data = None
                 test_rmse = None
-                model_fit_obj = None # Store fitted model object if needed for full forecast later
 
                 # --- Fit and Predict on Test Set (for evaluation) ---
                 if method_name == 'ARIMA':
-                    # ARIMA order (p, d, q) - still using fixed for now
-                    order = (5, 1, 0)
-                    if len(train_data) <= order[0] + order[1] + order[2]: # Check if enough data for order
-                         print(f"Skipping ARIMA: Not enough train data ({len(train_data)}) for order {order}.")
-                         continue # Skip to next method if not enough data
-                    model = ARIMA(train_data['Value'], order=order)
-                    model_fit = model.fit()
-                    model_fit_obj = model_fit # Store fitted object
-                    # Predict on the test set periods
-                    test_predictions = model_fit.predict(start=test_data.index[0], end=test_data.index[-1])
+                    order = (5, 1, 0) # Fixed ARIMA order
+                    if len(train_data) <= order[0] + order[1] + order[2]:
+                         print(f"Skipping {method_name} evaluation: Not enough train data ({len(train_data)}) for order {order}.")
+                         continue # Skip if not enough data
+
+                    try:
+                         model = ARIMA(train_data['Value'], order=order)
+                         # Suppress specific ARIMA warnings during fit if needed
+                         with warnings.catch_warnings():
+                              warnings.filterwarnings("ignore")
+                              model_fit = model.fit()
+
+                         # Predict on the test set index dates
+                         test_predictions = model_fit.predict(start=test_data.index[0], end=test_data.index[-1])
+
+                     # Catch specific errors during ARIMA fit, e.g., LinAlgError, ValueError
+                    except (np.linalg.LinAlgError, ValueError) as arima_fit_error:
+                         print(f"ARIMA fitting failed on train data: {arima_fit_error}")
+                         continue # Skip evaluation and full forecast for this method on fit failure
+                    except Exception as arima_other_error:
+                         print(f"Unexpected error during ARIMA fitting on train data: {arima_other_error}")
+                         continue # Skip on other errors too
+
 
                 elif method_name == 'ETS':
                     # Simple Exponential Smoothing
-                    # Use auto-optimized smoothing level (alpha=None) or a fixed one (e.g., 0.2)
-                    model = SimpleExpSmoothing(train_data['Value'])
-                    model_fit = model.fit(optimized=True) # Optimize alpha
-                    model_fit_obj = model_fit # Store fitted object
-                    # Predict on the test set periods
-                     # forecast() predicts *out* of sample. Need predict() for in-sample test set dates.
-                     # Note: ETS predict() might have different start/end behavior than ARIMA
-                     # Simpler: Use forecast() starting from the last train date for length of test set
-                    test_predictions = model_fit.forecast(steps=len(test_data))
-                    # Align predictions index with test_data index for RMSE calculation
-                    if len(test_predictions) == len(test_data):
-                         test_predictions.index = test_data.index
-                    else:
-                         # If lengths mismatch (unexpected), handle error or skip
-                         print(f"Warning: ETS test prediction length ({len(test_predictions)}) mismatch with test data length ({len(test_data)}). Skipping evaluation.")
-                         perform_evaluation = False # Disable evaluation if mismatch
-                         continue # Skip evaluation for this model
+                    if len(train_data) < 2:
+                         print(f"Skipping {method_name} evaluation: Not enough train data ({len(train_data)}).")
+                         continue
+
+                    try:
+                         model = SimpleExpSmoothing(train_data['Value'])
+                         model_fit = model.fit(optimized=True) # Optimize alpha
+                         # Predict on the test set periods using forecast
+                         test_predictions = model_fit.forecast(steps=len(test_data))
+                         # Align predictions index with test_data index for RMSE calculation
+                         if len(test_predictions) == len(test_data):
+                              test_predictions.index = test_data.index
+                         else:
+                              print(f"Warning: ETS test prediction length ({len(test_predictions)}) mismatch with test data length ({len(test_data)}).")
+                              test_predictions = None # Invalidate prediction
+
+                     except Exception as ets_error:
+                         print(f"ETS fitting failed on train data: {ets_error}")
+                         continue # Skip evaluation and full forecast on fit failure
+
 
                 elif method_name == 'SMA':
-                     # Simple Moving Average - use a rolling window on the train data
                      window_size = 7 # Example window size (e.g., 7 for weekly data)
                      if len(train_data) < window_size:
-                          print(f"Skipping SMA: Not enough train data ({len(train_data)}) for window size {window_size}.")
-                          continue # Skip if not enough data for window
+                          print(f"Skipping {method_name} evaluation: Not enough train data ({len(train_data)}) for window size {window_size}.")
+                          continue
 
                      # Calculate rolling mean on train data
                      rolling_mean = train_data['Value'].rolling(window=window_size).mean()
-                     # The prediction for the test set is the *last* calculated rolling mean value,
-                     # extended flat for the length of the test set. SMA predicts a constant value.
+                     # The prediction for the test set is the last valid rolling mean value, extended flat
                      if not rolling_mean.empty and not np.isnan(rolling_mean.iloc[-1]):
-                         test_predictions = pd.Series([rolling_mean.iloc[-1]] * len(test_data), index=test_data.index)
+                         forecast_value = rolling_mean.iloc[-1]
+                         test_predictions = pd.Series([forecast_value] * len(test_data), index=test_data.index)
                      else:
-                         print("Skipping SMA evaluation: Rolling mean is empty or NaN at the end.")
+                         print("Skipping SMA evaluation: Rolling mean is invalid at the end.")
                          continue # Skip if rolling mean is invalid
 
+
                 # --- Calculate RMSE on Test Set ---
-                if perform_evaluation and test_data.shape[0] > 0:
-                    # Drop any NaNs that might exist in test_predictions if prediction failed for some points
-                    # Align indices just in case before calculating RMSE
+                if perform_evaluation and test_data.shape[0] > 0 and test_predictions is not None and not test_predictions.empty:
+                    # Drop any NaNs that might exist in test_predictions
+                    test_predictions.dropna(inplace=True)
+                    # Align indices before calculating RMSE to ensure comparing same dates
                     aligned_test_data, aligned_test_predictions = test_data['Value'].align(test_predictions, join='inner')
-                    if len(aligned_test_data) > 0:
+                    if len(aligned_test_data) > 0: # Ensure there's data after alignment
                         test_rmse = rmse(aligned_test_data, aligned_test_predictions)
                         print(f"{method_name} Test RMSE: {test_rmse}")
                         evaluation_results[method_name] = test_rmse
 
-                        # Update best method if current RMSE is lower
-                        if test_rmse < lowest_rmse:
+                        # Update best method if current RMSE is lower (and not infinite/NaN)
+                        if test_rmse < lowest_rmse and not np.isnan(test_rmse):
                             lowest_rmse = test_rmse
                             best_method = method_name
                     else:
-                         print(f"Skipping {method_name} RMSE calculation: No overlapping index for test data and predictions.")
+                         print(f"Skipping {method_name} RMSE calculation: No overlapping index for test data and predictions after alignment.")
                          evaluation_results[method_name] = float('inf') # Assign high RMSE if cannot calculate
                 else:
-                     print("Skipping evaluation: Not enough test data or evaluation disabled.")
+                     print(f"Skipping {method_name} evaluation: Not enough test data, predictions are None, or evaluation disabled.")
                      evaluation_results[method_name] = float('inf') # Assign high RMSE if cannot evaluate
 
 
-                # --- Generate Forecast on Full Data ---
-                # Use the model fitted on the *full* ts_data for the final forecast
+                # --- Generate Forecast on Full Data (for final results) ---
+                full_forecast_values = None
+                full_conf_int = None
+
                 if method_name == 'ARIMA':
+                     order = (5, 1, 0) # Fixed ARIMA order
                      if len(ts_data) <= order[0] + order[1] + order[2]:
-                          print(f"Skipping full ARIMA forecast: Not enough data ({len(ts_data)}) for order {order}.")
-                          continue # Skip forecast if not enough data for full model
-                     # Re-fit ARIMA on full data
-                     full_model = ARIMA(ts_data['Value'], order=order)
-                     full_model_fit = full_model.fit()
-                     forecast_steps_result = full_model_fit.get_forecast(steps=forecast_periods)
-                     forecast_values = forecast_steps_result.predicted_mean
-                     conf_int = forecast_steps_result.conf_int()
+                          print(f"Skipping full {method_name} forecast: Not enough data ({len(ts_data)}) for order {order}.")
+                          # Mark as failed in results
+                          forecast_results_all_models[method_name] = {
+                             "evaluation_rmse": evaluation_results.get(method_name, "N/A"),
+                             "forecast_data": [],
+                             "error": "Not enough data for full model fit"
+                         }
+                          continue # Skip full forecast
+
+                     try:
+                         # Re-fit ARIMA on full data
+                         full_model = ARIMA(ts_data['Value'], order=order)
+                         with warnings.catch_warnings():
+                              warnings.filterwarnings("ignore")
+                              full_model_fit = full_model.fit()
+
+                         # Generate forecast for forecast_periods steps
+                         forecast_steps_result = full_model_fit.get_forecast(steps=forecast_periods)
+                         full_forecast_values = forecast_steps_result.predicted_mean
+                         full_conf_int = forecast_steps_result.conf_int() # Confidence intervals
+
+                     except (np.linalg.LinAlgError, ValueError) as arima_fit_error:
+                          print(f"Full ARIMA fitting failed: {arima_fit_error}")
+                          # Mark as failed in results
+                          forecast_results_all_models[method_name] = {
+                             "evaluation_rmse": evaluation_results.get(method_name, "N/A"),
+                             "forecast_data": [],
+                             "error": f"Model fit failed: {arima_fit_error}"
+                         }
+                          continue # Skip full forecast
+                     except Exception as arima_other_error:
+                          print(f"Unexpected error during full ARIMA fitting: {arima_other_error}")
+                          forecast_results_all_models[method_name] = {
+                             "evaluation_rmse": evaluation_results.get(method_name, "N/A"),
+                             "forecast_data": [],
+                             "error": f"Model fit failed: {arima_other_error}"
+                         }
+                          continue # Skip full forecast
+
 
                 elif method_name == 'ETS':
-                     if len(ts_data) < 2: # Need at least 2 points for ETS usually
-                          print(f"Skipping full ETS forecast: Not enough data ({len(ts_data)}).")
-                          continue
-                     # Re-fit ETS on full data
-                     full_model = SimpleExpSmoothing(ts_data['Value'])
-                     full_model_fit = full_model.fit(optimized=True)
-                     # forecast() for out-of-sample predictions
-                     forecast_steps_result = full_model_fit.forecast(steps=forecast_periods)
-                     # Simple ETS doesn't provide confidence intervals by default in forecast() result
-                     # We can calculate an approximate CI based on model std error if needed, but skipping for now.
-                     # For simplicity, let's just set CI to forecast value for now.
-                     forecast_values = forecast_steps_result
-                     conf_int = pd.DataFrame({
-                         0: forecast_values, # Lower Bound = Forecast Value (placeholder)
-                         1: forecast_values  # Upper Bound = Forecast Value (placeholder)
-                     }, index=forecast_values.index)
+                     if len(ts_data) < 2:
+                          print(f"Skipping full {method_name} forecast: Not enough data ({len(ts_data)}).")
+                          forecast_results_all_models[method_name] = {
+                             "evaluation_rmse": evaluation_results.get(method_name, "N/A"),
+                             "forecast_data": [],
+                             "error": "Not enough data for full model fit"
+                         }
+                          continue # Skip full forecast
+
+                     try:
+                         # Re-fit ETS on full data
+                         full_model = SimpleExpSmoothing(ts_data['Value'])
+                         full_model_fit = full_model.fit(optimized=True)
+                         # Use forecast() for out-of-sample predictions
+                         full_forecast_values = full_model_fit.forecast(steps=forecast_periods)
+                         # Simple ETS doesn't provide standard CI in forecast result.
+                         # Set placeholder CI for consistency with ARIMA output structure.
+                         full_conf_int = pd.DataFrame({
+                             0: full_forecast_values, # Lower Bound (placeholder)
+                             1: full_forecast_values  # Upper Bound (placeholder)
+                         }, index=full_forecast_values.index)
+
+                     except Exception as ets_error:
+                         print(f"Full ETS fitting failed: {ets_error}")
+                         forecast_results_all_models[method_name] = {
+                             "evaluation_rmse": evaluation_results.get(method_name, "N/A"),
+                             "forecast_data": [],
+                             "error": f"Model fit failed: {ets_error}"
+                         }
+                         continue # Skip full forecast
 
 
                 elif method_name == 'SMA':
+                     window_size = 7 # Example window size (adjust as needed)
                      if len(ts_data) < window_size:
-                          print(f"Skipping full SMA forecast: Not enough data ({len(ts_data)}) for window size {window_size}.")
-                          continue
+                          print(f"Skipping full {method_name} forecast: Not enough data ({len(ts_data)}) for window size {window_size}.")
+                          forecast_results_all_models[method_name] = {
+                             "evaluation_rmse": evaluation_results.get(method_name, "N/A"),
+                             "forecast_data": [],
+                             "error": f"Not enough data for SMA window size {window_size}"
+                         }
+                          continue # Skip full forecast
+
                      # Calculate rolling mean on full data
                      full_rolling_mean = ts_data['Value'].rolling(window=window_size).mean()
                      # The forecast is the last valid rolling mean value, extended flat
                      if not full_rolling_mean.empty and not np.isnan(full_rolling_mean.iloc[-1]):
                          forecast_value = full_rolling_mean.iloc[-1]
-                         forecast_values = pd.Series([forecast_value] * forecast_periods)
-                         # SMA doesn't provide standard CI. Use a simple placeholder or calculation.
-                         # Placeholder CI = forecast value
-                         conf_int = pd.DataFrame({
-                             0: forecast_values, # Lower Bound
-                             1: forecast_values  # Upper Bound
-                         }, index=forecast_values.index)
+                         full_forecast_values = pd.Series([forecast_value] * forecast_periods)
+                          # SMA doesn't provide standard CI. Set placeholder CI.
+                         full_conf_int = pd.DataFrame({
+                             0: full_forecast_values, # Lower Bound (placeholder)
+                             1: full_forecast_values  # Upper Bound (placeholder)
+                         }, index=full_forecast_values.index)
                      else:
-                         print("Skipping full SMA forecast: Rolling mean is invalid at the end.")
-                         continue # Skip forecast if rolling mean is invalid
+                         print(f"Skipping full {method_name} forecast: Rolling mean is invalid at the end.")
+                         forecast_results_all_models[method_name] = {
+                             "evaluation_rmse": evaluation_results.get(method_name, "N/A"),
+                             "forecast_data": [],
+                             "error": "Could not calculate rolling mean for forecast"
+                         }
+                         continue # Skip full forecast
 
 
                 # --- Generate Forecast Date Index for Full Forecast ---
-                # Need to ensure this index matches the forecast_values index length
+                # Need to ensure this index matches the full_forecast_values index length
                 last_date = ts_data.index[-1]
                 # Use the frequency of the resampled data's index
-                # pd.infer_freq might fail if index has no freq after resample/fillna - check ts_data.index.freq
-                used_freq = ts_data.index.freq # Use the frequency from the resampled index
+                used_freq = ts_data.index.freq # Use the frequency from the resampled index (set by resample)
 
                 if used_freq is None:
-                    print("Warning: Resampled index frequency is None. Attempting to infer or falling back to Daily for forecast index generation.")
-                    # Fallback logic if frequency is None after resampling/filling
-                    try:
-                         # Attempt to infer frequency from the resampled index with NaNs filled
-                         # This might still be None if data is truly irregular or very short
-                         inferred_freq_after_resample = pd.infer_freq(ts_data.index)
-                         used_freq = inferred_freq_after_resample if inferred_freq_after_resample else 'D' # Use inferred or default to Daily
-                         print(f"Using frequency '{used_freq}' for forecast index generation.")
-                    except Exception as infer_e:
-                         print(f"Could not infer frequency after resampling/fillna: {infer_e}. Defaulting to Daily.")
-                         used_freq = 'D' # Default if infer fails
+                     # This should ideally not happen if resample successfully set freq, but keep fallback
+                     print("Warning: Resampled index frequency is None after all. Falling back to Daily for forecast index generation.")
+                     used_freq = 'D' # Default fallback
 
                 try:
                      # Generate dates starting *after* the last training date, using the determined frequency
                      # Need +1 period to get the date *after* the last historical date
+                     # Use the *known* frequency from the resampled index
                      forecast_index_full = pd.date_range(start=last_date, periods=forecast_periods + 1, freq=used_freq)[1:] # Exclude last training date
 
                 except Exception as freq_gen_e:
-                     print(f"Could not generate forecast date index with frequency '{used_freq}'. Error: {freq_gen_e}")
+                     print(f"Could not generate forecast date index with frequency '{used_freq}' for {method_name}. Error: {freq_gen_e}")
                      # Fallback to a simple date range generation if freq generation fails
-                     print("Falling back to simple date range generation assuming daily offset...")
-                     forecast_index_full = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_periods) # Simple daily offset
+                     print(f"Falling back to simple daily offset date generation for {method_name}...")
+                     forecast_index_full = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_periods) # Simple daily offset fallback
 
 
-                # Ensure forecast values index matches forecast date index length
-                if len(forecast_index_full) != len(forecast_values):
-                     print(f"Warning: Mismatch between forecast index length ({len(forecast_index_full)}) and values length ({len(forecast_values)}) for {method_name}. Adjusting index length.")
-                     # Adjust the index length to match the values length if mismatch occurs
-                     # This might mean the dates are incorrect if freq generation failed
-                     forecast_index_full = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=len(forecast_values)) # Simple daily offset
+                # Ensure forecast values length matches forecast date index length
+                if full_forecast_values is None or len(forecast_index_full) != len(full_forecast_values):
+                     print(f"Warning: Mismatch between forecast index length ({len(forecast_index_full)}) and values length ({len(full_forecast_values) if full_forecast_values is not None else 'None'}) for {method_name}. Skipping forecast data formatting.")
+                      # Mark as failed in results
+                     forecast_results_all_models[method_name] = {
+                         "evaluation_rmse": evaluation_results.get(method_name, "N/A"),
+                         "forecast_data": [], # Return empty list
+                         "error": "Forecast length mismatch or generation failed"
+                     }
+                     continue # Skip data formatting if lengths don't match
 
 
                 # Combine forecast results for this method into a list of dictionaries
                 method_forecast_data = []
-                # Ensure iteration is based on the length of forecast_values
-                for i in range(len(forecast_values)):
+                for i in range(len(full_forecast_values)): # Iterate based on values length
                      method_forecast_data.append({
                          "Date": forecast_index_full[i].strftime('%Y-%m-%d'),
-                         "ForecastValue": float(forecast_values.iloc[i]),
-                         "LowerBound": float(conf_int.iloc[i, 0]) if conf_int.shape[1] > 0 else float(forecast_values.iloc[i]), # Handle models without CI easily
-                         "UpperBound": float(conf_int.iloc[i, 1]) if conf_int.shape[1] > 1 else float(forecast_values.iloc[i]) # Handle models without CI easily
+                         "ForecastValue": float(full_forecast_values.iloc[i]),
+                         "LowerBound": float(full_conf_int.iloc[i, 0]) if full_conf_int is not None and full_conf_int.shape[1] > 0 else float(full_forecast_values.iloc[i]), # Handle models without CI easily
+                         "UpperBound": float(full_conf_int.iloc[i, 1]) if full_conf_int is not None and full_conf_int.shape[1] > 1 else float(full_forecast_values.iloc[i]) # Handle models without CI easily
                      })
 
+                # Store successful forecast data and evaluation for this model
                 forecast_results_all_models[method_name] = {
-                     "evaluation_rmse": test_rmse if test_rmse is not None else "N/A", # Include test RMSE
+                     "evaluation_rmse": evaluation_results.get(method_name, "N/A"), # Include test RMSE
                      "forecast_data": method_forecast_data # The forecast points for this method
                 }
-                print(f"{method_name} forecast generated.")
+                print(f"{method_name} forecast generated and formatted.")
 
             except Exception as e:
-                print(f"Error running or evaluating {method_name}: {e}")
-                forecast_results_all_models[method_name] = {
-                     "evaluation_rmse": float('inf'), # Assign very high RMSE on error
-                     "forecast_data": [], # Return empty forecast data
-                     "error": str(e) # Include the error message
-                }
-                evaluation_results[method_name] = float('inf') # Ensure it's not considered 'best'
+                print(f"Error running or evaluating {method_name} (caught late): {e}")
+                # Ensure model result is marked as failed if error occurred anywhere in its block
+                 if method_name not in forecast_results_all_models or "error" not in forecast_results_all_models[method_name]:
+                      forecast_results_all_models[method_name] = {
+                         "evaluation_rmse": evaluation_results.get(method_name, float('inf')),
+                         "forecast_data": [],
+                         "error": f"Runtime error during forecast generation: {str(e)}"
+                     }
+                 evaluation_results[method_name] = float('inf') # Ensure it's not considered 'best'
 
 
-        # Determine the best method based on lowest evaluation RMSE
-        if best_method is None and perform_evaluation and evaluation_results:
-             # If best_method is still None but evaluation was attempted and results exist,
-             # find the minimum RMSE among the methods that didn't fail evaluation entirely.
-             valid_eval_results = {k: v for k, v in evaluation_results.items() if v != float('inf')}
-             if valid_eval_results:
-                  best_method = min(valid_eval_results, key=valid_eval_results.get)
-                  print(f"Best method determined based on evaluation: {best_method}")
-             else:
-                  print("Could not determine best method as all evaluations failed.")
-                  best_method = "N/A"
-        elif best_method is None:
-             best_method = "N/A" # If evaluation was skipped or no methods ran
+        # Determine the best method based on lowest evaluation RMSE among successful evaluations
+        best_method = "N/A" # Default if no valid evaluation
+        valid_eval_results = {k: v for k, v in evaluation_results.items() if v != float('inf') and not np.isnan(v)}
+        if valid_eval_results:
+             best_method = min(valid_eval_results, key=valid_eval_results.get)
+             print(f"Best method determined based on evaluation: {best_method} (RMSE: {evaluation_results[best_method]})")
+        else:
+             print("Could not determine best method as all evaluations failed or were skipped.")
 
 
         # --- Return Final Results ---
-        print("All models run. Formatting final response.")
+        print("All models attempted. Formatting final response.")
         return jsonify({
             "message": "Forecasts generated successfully",
             "filename": file.filename,
             "selectedColumns": selected_columns,
             "selectedFrequency": selected_frequency_name,
             "forecastPeriods": forecast_periods,
-            "bestMethod": best_method, # <--- Indicate the best method
-            "modelResults": forecast_results_all_models # <--- Include results for all models
+            "bestMethod": best_method, # <--- Indicate the best method name
+            "modelResults": forecast_results_all_models, # <--- Include results for all models
+            "historicalData": historical_ts_data.reset_index().to_dict(orient='records') # <--- INCLUDE HISTORICAL DATA
         }), 200
 
 
