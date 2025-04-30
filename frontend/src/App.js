@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import FileUpload from './components/FileUpload';
 import ColumnSelector from './components/ColumnSelector';
-import ForecastResults from './components/ForecastResults'; // <--- IMPORT ForecastResults component
+import ForecastResults from './components/ForecastResults';
 import './styles/index.css';
 
 function App() {
@@ -11,8 +11,8 @@ function App() {
   // State for storing the original file object received in handleFileUploadSuccess
   const [uploadedFile, setUploadedFile] = useState(null);
 
-  // State for user's selected columns from ColumnSelector (kept for potential future use, but not directly rendered)
-  const [selectedColumns, setSelectedColumns] = useState(null); // eslint-disable-next-line no-unused-vars
+  // *** Removed: selectedColumns state is no longer needed in App.js for rendering flow ***
+  // const [selectedColumns, setSelectedColumns] = useState(null); // eslint-disable-next-line no-unused-vars
 
   // State for forecasting results received from backend (/forecast response)
   const [forecastResults, setForecastResults] = useState(null);
@@ -26,25 +26,23 @@ function App() {
       setUploadedFile(file); // STORE THE ORIGINAL FILE OBJECT
 
       // Reset states for the next steps
-      setSelectedColumns(null);
-      setForecastResults(null);
+      // *** Removed: setSelectedColumns(null) ***
+      setForecastResults(null); // Reset forecast results
   };
 
-  // Function called by ColumnSelector when user confirms selections (API call is now in ColumnSelector)
-  // This function is primarily here to update the selectedColumns state in App.js if needed for rendering logic.
-  const handleColumnsSelected = (selections) => { // eslint-disable-next-line no-unused-vars
-      console.log("Columns selected:", selections);
-      setSelectedColumns(selections); // Store the user's selected columns
-       // forecastResults is set by handleForecastComplete
-  };
+  // *** Removed: handleColumnsSelected function is no longer needed in App.js ***
+  // const handleColumnsSelected = (selections) => { // eslint-disable-next-line no-unused-vars
+  //     console.log("Columns selected:", selections);
+  //     // setSelectedColumns(selections); // No longer setting this state here
+  // };
 
    // Function called by ColumnSelector when the backend returns forecast results
    const handleForecastComplete = (results) => {
        console.log("Forecasting completed, received results:", results);
-       // Store the results received from the backend's /forecast endpoint
-       setForecastResults(results);
-       // We might clear selectedColumns or uploadInfo here depending on desired flow (e.g., go back to upload)
-       // For now, keep previous info visible alongside results.
+       setForecastResults(results); // Store the results received from the backend's /forecast endpoint
+       // We might clear previous states here to allow re-uploading if needed
+       // setUploadInfo(null);
+       // setUploadedFile(null);
    };
 
 
@@ -56,39 +54,48 @@ function App() {
           AI Time Series Forecaster
         </h1>
 
-        {/* Conditional Rendering based on application state */}
+        {/* Conditional Rendering */}
 
         {/* Step 1: File Upload */}
-        {/* Show FileUpload component only if no upload info AND no file object stored yet */}
-        {!uploadInfo && !uploadedFile && (
+        {/* Show FileUpload component if no upload info AND no file object stored yet AND no forecast results */}
+        {!uploadInfo && !uploadedFile && !forecastResults && ( // Added !forecastResults check
             <FileUpload onFileUploadSuccess={handleFileUploadSuccess} />
         )}
 
         {/* Step 2: Column Selection and Run Forecast */}
         {/* Show ColumnSelector if upload info AND file object are available, AND forecast results are NOT available */}
         {uploadInfo && uploadedFile && !forecastResults && (
-             // Render ColumnSelector
-             // Pass headers, the original file object, and the forecast complete handler
-            <ColumnSelector
+             <ColumnSelector
                 columnHeaders={uploadInfo.column_headers}
-                file={uploadedFile} // PASS THE FILE OBJECT
-                onForecastComplete={handleForecastComplete} // PASS THE NEW HANDLER
-                // onColumnsSelected={handleColumnsSelected} // Not directly needed for flow now
-            />
+                file={uploadedFile}
+                onForecastComplete={handleForecastComplete}
+                // onColumnsSelected={handleColumnsSelected} // No longer passed
+             />
         )}
 
         {/* Step 3: Display Forecasting Results */}
         {/* Show ForecastResults component if forecast results ARE available */}
-        {/* >>>>> REPLACE THE PLACEHOLDER JSON DISPLAY WITH ForecastResults COMPONENT <<<<< */}
-        {forecastResults && ( // Show if forecastResults is set
-             // Render the ForecastResults component, passing the received data
+        {forecastResults && (
              <ForecastResults results={forecastResults} />
         )}
-        {/* >>>>> END OF REPLACEMENT <<<<< */}
 
-
-         {/* Optional: Placeholder for loading state (handled within ColumnSelector now) */}
-         {/* Removed this block temporarily */}
+         {/* Optional: Button to restart the process */}
+         {/* Show a restart button if forecast results are present */}
+         {forecastResults && (
+              <div className="mt-8 flex justify-center">
+                   <button
+                        onClick={() => { // Inline function to reset states
+                            setUploadInfo(null);
+                            setUploadedFile(null);
+                            setForecastResults(null);
+                            // *** Removed: setSelectedColumns(null); ***
+                        }}
+                        className="px-6 py-2 bg-gray-300 text-gray-700 font-semibold rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50"
+                   >
+                        Upload Another File
+                   </button>
+              </div>
+         )}
 
 
       </div>
