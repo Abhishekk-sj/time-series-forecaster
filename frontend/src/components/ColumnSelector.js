@@ -8,36 +8,44 @@ const BACKEND_URL = 'https://time-series-forecaster-backend.onrender.com';
 // Define the types of columns the user needs to select
 const COLUMN_TYPES = ['Date Column', 'Value Column', 'Aggregation Column (Optional)'];
 
-// This component receives the column headers from the backend
-// It also receives the original file data and a function to call
-// when the forecast results are received.
-function ColumnSelector({ columnHeaders, file, onForecastComplete }) { // Added 'file' and 'onForecastComplete' props
+// Define the available forecasting frequencies
+const FORECAST_FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly'];
+
+
+// This component receives the column headers from the backend,
+// the original file data, and a function to call when the forecast results are received.
+function ColumnSelector({ columnHeaders, file, onForecastComplete }) {
   // State to store the user's selected column for each type
   const [selectedColumns, setSelectedColumns] = useState({
     'Date Column': '',
     'Value Column': '',
     'Aggregation Column (Optional)': ''
   });
+  // State for the selected forecasting frequency
+  const [selectedFrequency, setSelectedFrequency] = useState('Daily'); // Default to Daily
   // State for the number of periods to forecast
   const [forecastPeriods, setForecastPeriods] = useState(12); // Default to 12 periods
-  // State for any error message related to selections or forecasting
-  const [errorMessage, setErrorMessage] = useState(''); // Renamed selectionError to errorMessage
-  // State to track if selections are valid to enable the forecast button
-  const [canRunForecast, setCanRunForecast] = useState(false); // Renamed canProceed
+  // State for any error message
+  const [errorMessage, setErrorMessage] = useState('');
+  // State to track if inputs are valid to enable the forecast button
+  const [canRunForecast, setCanRunForecast] = useState(false);
   // State to track if the forecast is currently loading
   const [isLoadingForecast, setIsLoadingForecast] = useState(false);
 
-  // Effect hook to run validation whenever selectedColumns or forecastPeriods change
+
+  // Effect hook to run validation whenever inputs change
   useEffect(() => {
     // Check if the required columns (Date and Value) have been selected
     const dateSelected = selectedColumns['Date Column'] !== '';
     const valueSelected = selectedColumns['Value Column'] !== '';
+     // Check if frequency is selected (should always be true with default)
+    const frequencySelected = selectedFrequency !== '';
     // Check if forecastPeriods is a positive integer
     const periodsValid = Number.isInteger(forecastPeriods) && forecastPeriods > 0;
 
 
-    if (dateSelected && valueSelected && periodsValid) {
-      // If required columns and periods are valid, check for duplicates among required ones
+    if (dateSelected && valueSelected && frequencySelected && periodsValid) {
+      // If required selections are valid, check for duplicates among required ones
       if (selectedColumns['Date Column'] === selectedColumns['Value Column']) {
          setErrorMessage('Date and Value columns cannot be the same.');
          setCanRunForecast(false);
@@ -47,12 +55,13 @@ function ColumnSelector({ columnHeaders, file, onForecastComplete }) { // Added 
          setCanRunForecast(true);
       }
     } else {
-      // Required selections are not yet complete or periods invalid
-      // Clear error if selections become incomplete, but keep period error if applicable
+      // Required selections are incomplete or periods/frequency invalid
        if (!periodsValid) {
            setErrorMessage('Please enter a positive integer for forecast periods.');
+       } else if (!frequencySelected) {
+            setErrorMessage('Please select a forecasting frequency.'); // Should not happen with default
        } else {
-           setErrorMessage(''); // Clear error if selections are just incomplete
+           setErrorMessage(''); // Clear error if just incomplete selections
        }
       setCanRunForecast(false);
     }
@@ -63,27 +72,30 @@ function ColumnSelector({ columnHeaders, file, onForecastComplete }) { // Added 
            setCanRunForecast(false);
       }
 
-  }, [selectedColumns, forecastPeriods, columnHeaders]); // Dependency array
+  }, [selectedColumns, selectedFrequency, forecastPeriods, columnHeaders]); // Dependency array
 
-  // Function called when a dropdown selection changes
+
+  // Handle dropdown selection change for columns
   const handleSelectChange = (columnType, selectedValue) => {
-    setErrorMessage(''); // Clear any previous errors on new selection
+    setErrorMessage('');
     setSelectedColumns(prevSelections => ({
       ...prevSelections,
       [columnType]: selectedValue
     }));
   };
 
-   // Function called when the forecast periods input changes
+   // Handle dropdown selection change for frequency
+  const handleFrequencyChange = (event) => {
+       setErrorMessage('');
+       setSelectedFrequency(event.target.value);
+  };
+
+   // Handle forecast periods input change
   const handlePeriodsChange = (event) => {
        const value = event.target.value;
-       setErrorMessage(''); // Clear error on input change
-       // Attempt to convert to integer, but store the raw value temporarily
+       setErrorMessage('');
        const intValue = parseInt(value, 10);
-
-       // Store the number (or NaN if invalid)
-       setForecastPeriods(isNaN(intValue) ? value : intValue);
-
+       setForecastPeriods(isNaN(intValue) ? value : intValue); // Store raw or integer value
   };
 
 
@@ -100,9 +112,8 @@ function ColumnSelector({ columnHeaders, file, onForecastComplete }) { // Added 
 
      // Prepare data to send to backend
      const formData = new FormData();
-     // Append the original file content
-     if (file) { // Ensure file exists
-         formData.append('file', file);
+     if (file) {
+         formData.append('file', file); // Append the original file content
      } else {
           console.error("Original file data is missing!");
           setErrorMessage("Error: Original file data is missing.");
@@ -110,43 +121,53 @@ function ColumnSelector({ columnHeaders, file, onForecastComplete }) { // Added 
           return;
      }
 
-     // Append the selected columns and forecast periods as form fields (JSON stringified)
-     formData.append('selectedColumns', JSON.stringify(selectedColumns));
-     formData.append('forecastPeriods', forecastPeriods.toString());
+     // Append the selections and parameters as form fields
+     formData.append('selectedColumns', JSON.stringify(selectedColumns)); // Selections object as JSON string
+     formData.append('selectedFrequency', selectedFrequency); // <--- ADD SELECTED FREQUENCY
+     formData.append('forecastPeriods', forecastPeriods.toString()); // Periods as string
 
 
      console.log(`Attempting to run forecast on: ${BACKEND_URL}/forecast`); // Debug log
+     console.log('Sending FormData:', {
+         filename: file.name,
+         selectedColumns: selectedColumns,
+         selectedFrequency: selectedFrequency,
+         forecastPeriods: forecastPeriods
+     }); // More detailed debug log
+
 
     try {
-      // Use axios to send a POST request to the backend's /forecast endpoint
+      // Send POST request to the backend's /forecast endpoint
       const response = await axios.post(`${BACKEND_URL}/forecast`, formData, {
-         // axios sets Content-Type: multipart/form-data automatically with FormData
-         timeout: 60000 // Increase timeout for forecasting (e.g., 60 seconds)
+         timeout: 120000 // Increased timeout (e.g., 120 seconds)
       });
 
       // If the request is successful (status 2xx)
       console.log('Forecast response:', response.data); // Log the response from the backend
-      // Call the parent component's callback function, passing the results
       if (onForecastComplete) {
-          onForecastComplete(response.data);
+          onForecastComplete(response.data); // Call parent callback with results
       }
 
     } catch (error) {
-      // If there's an error during the request
-      console.error('Forecast failed:', error); // Log the error
+      // Handle errors during the request
+      console.error('Forecast failed:', error);
       let displayError = 'Forecasting failed.';
 
       if (error.response) {
         displayError = `Forecasting failed: ${error.response.status} - ${error.response.data?.error || error.response.statusText || 'Unknown Error'}`;
+         // Check if backend returned specific error details
+         if (error.response.data?.details) {
+             displayError += ` Details: ${error.response.data.details}`;
+         }
       } else if (error.request) {
-        displayError = 'Forecasting failed: No response from server.';
+        displayError = 'Forecasting failed: No response from server. Is the backend running and reachable?';
       } else {
         displayError = `Forecasting failed: ${error.message}`;
       }
        setErrorMessage(displayError); // Display the error message to the user
 
     } finally {
-      setIsLoadingForecast(false); // Set loading state back to false
+      setIsLoadingForecast(false); // Ensure loading state is false
     }
   };
 
@@ -158,7 +179,7 @@ function ColumnSelector({ columnHeaders, file, onForecastComplete }) { // Added 
       </h2>
 
       <p className="mb-4 text-gray-600 text-sm">
-        Identify the columns needed for forecasting and set the forecast horizon.
+        Identify the columns needed for forecasting, the forecast horizon, and the desired output frequency.
       </p>
 
       {/* Column Selection Dropdowns */}
@@ -184,18 +205,38 @@ function ColumnSelector({ columnHeaders, file, onForecastComplete }) { // Added 
         </div>
       ))}
 
+       {/* Forecasting Frequency Dropdown */}
+       <div className="flex flex-col sm:flex-row items-start sm:items-center mb-4 space-y-2 sm:space-y-0 sm:space-x-4">
+          <label htmlFor="forecastFrequency" className="block text-sm font-medium text-gray-700 w-40 flex-shrink-0">
+             Forecast Frequency:
+          </label>
+           <select
+             id="forecastFrequency"
+             value={selectedFrequency}
+             onChange={handleFrequencyChange}
+             className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+           >
+             {FORECAST_FREQUENCIES.map(freq => (
+               <option key={freq} value={freq}>
+                 {freq}
+               </option>
+             ))}
+           </select>
+       </div>
+
+
       {/* Forecast Periods Input */}
        <div className="flex flex-col sm:flex-row items-start sm:items-center mb-4 space-y-2 sm:space-y-0 sm:space-x-4">
           <label htmlFor="forecastPeriods" className="block text-sm font-medium text-gray-700 w-40 flex-shrink-0">
              Forecast Periods:
           </label>
            <input
-             type="number" // Use type number
+             type="number"
              id="forecastPeriods"
-             value={forecastPeriods} // Controlled by state
-             onChange={handlePeriodsChange} // Calls our handler
-             min="1" // Minimum periods should be 1
-             step="1" // Allow only integer steps
+             value={forecastPeriods}
+             onChange={handlePeriodsChange}
+             min="1"
+             step="1"
              className="mt-1 block w-full pl-3 pr-3 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
            />
        </div>
@@ -210,20 +251,18 @@ function ColumnSelector({ columnHeaders, file, onForecastComplete }) { // Added 
       {/* Run Forecast Button */}
       <div className="mt-6 flex justify-end">
         <button
-          onClick={handleRunForecast} // Calls our handler when clicked
-          disabled={!canRunForecast || isLoadingForecast} // Button disabled based on validation and loading state
+          onClick={handleRunForecast}
+          disabled={!canRunForecast || isLoadingForecast}
           className={`px-6 py-2 text-white font-semibold rounded-md
             ${canRunForecast && !isLoadingForecast ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-400 cursor-not-allowed'}
-            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 flex items-center`} // Added flex and items-center for loading spinner
+            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 flex items-center`}
         >
-          {/* Show loading spinner if loading */}
            {isLoadingForecast && (
               <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
             )}
-          {/* Button text changes based on loading state */}
           {isLoadingForecast ? 'Running Forecast...' : 'Run Forecast'}
         </button>
       </div>
