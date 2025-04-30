@@ -1,145 +1,105 @@
 # backend/app.py
 import os
+import json
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
-import pandas as pd # Import pandas
-import json # Import json for parsing selections
-import numpy as np # Import numpy
-# Import necessary modules from statsmodels for ARIMA
+import pandas as pd
+import numpy as np
+# Import necessary modules from statsmodels for ARIMA and ETS
 from statsmodels.tsa.stattools import adfuller
 from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.holtwinters import SimpleExpSmoothing # Import Simple Exponential Smoothing
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-from statsmodels.tools.eval_measures import rmse # For evaluation later
+from statsmodels.tools.eval_measures import rmse # Import RMSE for evaluation
 import warnings # To suppress warnings from statsmodels
-# Suppress specific warnings from statsmodels (Optional but recommended to keep logs cleaner)
+
+# Suppress specific warnings from statsmodels and pandas
 warnings.filterwarnings("ignore", category=UserWarning)
-warnings.filterwarnings("ignore", category=FutureWarning) # Often related to pandas/statsmodels interaction
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", message="The `freq` argument is deprecated") # For pandas future warning on freq
+
+# Define a mapping for frontend frequency names to pandas frequency codes
+# Assuming 'MS' for Month Start, 'QS' for Quarter Start, 'AS' for Year Start
+FREQUENCY_MAP = {
+    'Daily': 'D',
+    'Weekly': 'W',
+    'Monthly': 'MS',
+    'Quarterly': 'QS',
+    'Yearly': 'AS'
+}
 
 # Initialize Flask app, telling it where to find static files after frontend build
-# '../frontend/build' is relative to the 'backend/' directory, which is Render's Root Directory
-# This assumes your Render service's Root Directory is set to 'backend'
 app = Flask(__name__, static_folder='../frontend/build')
-
-# WARNING: Allows ALL origins during development. Restrict in production if needed.
-# CORS allows your frontend running on a different domain/port to talk to your backend.
 CORS(app)
 
-# Configuration for file uploads
-# IMPORTANT: The 'uploads' directory on Render's free tier is ephemeral.
-# Files saved here will be lost when the container restarts or scales down.
-# We'll use this for temporary checking during development, but processing
-# should ideally read directly from request.files in later phases.
 UPLOAD_FOLDER = 'uploads'
-# Ensure the upload directory exists on startup
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 # Limit file size to 16MB (adjust as needed)
+app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
 
 
-# --- API Routes ---
-
-# Health check endpoint - useful for Render to check service status
 @app.route('/health')
 def health_check():
     """Health check endpoint for Render."""
-    print("Health check route hit") # Debug log
+    print("Health check route hit")
     return jsonify({"status": "healthy", "message": "Backend is alive!"}), 200
 
-# Route to handle file uploads from the frontend
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    """Handles file upload from the frontend."""
-    print("Received request to /upload") # Log server-side
+    """Handles file upload from the frontend, reads headers, returns headers."""
+    print("Received request to /upload")
 
-    # Ensure the uploads folder exists (good practice even for ephemeral filesystems)
-    # We keep this for the potential temporary save if direct read fails,
-    # but the primary path will now read directly.
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
          os.makedirs(app.config['UPLOAD_FOLDER'])
          print(f"Created upload folder: {app.config['UPLOAD_FOLDER']}")
 
-    # Check if the POST request has the file part with the key 'file'
     if 'file' not in request.files:
         print("No 'file' part in request.files")
         return jsonify({"error": "No file part in the request"}), 400
 
-    file = request.files['file'] # 'file' is a FileStorage object from Werkzeug
+    file = request.files['file']
     print(f"Received file: {file.filename}")
 
-    # If the user does not select a file, the browser submits an empty file without a filename.
     if file.filename == '':
         print("No selected file filename")
         return jsonify({"error": "No selected file"}), 400
 
-    # Basic check for file extension
     if file and file.filename.endswith('.csv'):
-        # --- Debug print before assigning filename ---
-        print("File is CSV, attempting to assign filename variable...")
-
-        # >>>>> THIS LINE WAS MISSING OR MISPLACED <<<<<
-        filename = file.filename # This line assigns the filename variable!
-        # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
-        # --- Debug print after assigning filename ---
-        print(f"Filename variable assigned: {filename}")
-
-        # We will attempt to read headers directly from the file object first.
-        # This filepath variable is primarily for a potential fallback save, not the main read path.
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename) # Path for potential temp save
+        print("File is CSV, attempting to process headers...")
 
         try:
-            # >>>>> THIS IS THE MAIN LOGIC TO READ HEADERS <<<<<
-            # Read the CSV file content directly from the FileStorage object into a pandas DataFrame
-            # file is the FileStorage object from request.files['file']
-            # nrows=0 reads only the header row, making it fast.
-            # keep_default_na=False prevents pandas from interpreting 'NA' or empty strings as NaN in headers.
+            file.seek(0)
             df = pd.read_csv(file, nrows=0, keep_default_na=False)
 
-            # Get the list of column names from the DataFrame's index (the columns)
             column_headers = df.columns.tolist()
-
-            # --- Debug print after successful header extraction ---
             print(f"Extracted column headers: {column_headers}")
 
-            # *** NOTE: We are NOT saving the file permanently here. ***
-            # The file content was read directly from the request object.
-
-            # Return a success response including the filename AND the column headers
-            # filename variable should be defined at this point
             return jsonify({
                 "message": "File uploaded successfully",
-                "filename": filename,
-                "column_headers": column_headers # Include the list of headers
+                "filename": file.filename,
+                "column_headers": column_headers
             }), 200
 
         except Exception as e:
-            # --- This block executes if an error occurs in the try block ---
-            # Catch potential errors during file reading or processing with pandas
-            # --- Debug print showing the exception object ---
-            # This print should show the original exception caught by 'e'.
-            print(f"Error reading or processing file with pandas. Exception object: {e}") # <-- This is the correct print
-
-            # Return an error response to the frontend
-            # We use str(e) to ensure the details key doesn't cause further NameErrors if e is complex.
-            # filename variable might not be reliably available here if error was before assignment,
-            # so avoid using 'filename' directly in this except block beyond basic print.
+            print(f"Error reading CSV headers. Exception object: {e}")
             return jsonify({"error": "Failed to read CSV headers.", "details": str(e)}), 500
 
     else:
-        # --- This block handles cases where the file is NOT a CSV ---
         print(f"Invalid file type uploaded: {file.filename}")
-        # filename variable is NOT defined in this else block, only file.filename
         return jsonify({"error": "Invalid file type. Please upload a CSV file."}), 400
 
 
 @app.route('/forecast', methods=['POST'])
 def run_forecast():
-    """Receives file, column selections, and parameters, runs forecast."""
-    print("Received request to /forecast") # Log server-side
+    """Receives file, column selections, parameters, and frequency, runs forecast."""
+    print("Received request to /forecast")
 
-    # 1. Get the file content (sent again from frontend)
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+         os.makedirs(app.config['UPLOAD_FOLDER'])
+         print(f"Created upload folder: {app.config['UPLOAD_FOLDER']}")
+
     if 'file' not in request.files:
         print("No 'file' part in /forecast request.files")
         return jsonify({"error": "No file part in the request for forecasting"}), 400
@@ -152,38 +112,43 @@ def run_forecast():
 
     if not file.filename.endswith('.csv'):
          print(f"Invalid file type for forecasting: {file.filename}")
-         return jsonify({"error": "Invalid file type for forecasting. Please upload a CSV file."}), 400
+         return jsonify({"error": "Invalid file type for forecasting. Please upload a CSV file."}), 500
 
-
-    # 2. Get the column selections and parameters from the form data
+    # --- Get inputs from form data ---
     try:
         selected_columns_json = request.form.get('selectedColumns')
+        selected_frequency_name = request.form.get('selectedFrequency') # <--- GET SELECTED FREQUENCY
         forecast_periods_str = request.form.get('forecastPeriods')
 
-        if not selected_columns_json or not forecast_periods_str:
-             print("Missing selectedColumns or forecastPeriods in form data")
+        if not selected_columns_json or not selected_frequency_name or not forecast_periods_str:
+             print("Missing selectedColumns, selectedFrequency, or forecastPeriods in form data")
              return jsonify({"error": "Missing forecasting inputs in request."}), 400
 
-        # Parse the JSON string for selected columns
         try:
             selected_columns = json.loads(selected_columns_json)
             date_col = selected_columns.get('Date Column')
             value_col = selected_columns.get('Value Column')
-            agg_col = selected_columns.get('Aggregation Column (Optional)') # Can be None or empty string
+            agg_col = selected_columns.get('Aggregation Column (Optional)')
 
         except json.JSONDecodeError:
             print("Failed to parse selectedColumns JSON")
             return jsonify({"error": "Invalid format for column selections."}), 400
 
+        # Map the selected frequency name to pandas frequency code
+        selected_freq_code = FREQUENCY_MAP.get(selected_frequency_name)
+        if not selected_freq_code:
+            print(f"Invalid selected frequency name: {selected_frequency_name}")
+            return jsonify({"error": "Invalid forecasting frequency selected."}), 400
+
+
         print(f"Received selections (parsed): Date='{date_col}', Value='{value_col}', Aggregation='{agg_col}'")
+        print(f"Received frequency: {selected_frequency_name} ({selected_freq_code})")
         print(f"Received forecast periods (string): {forecast_periods_str}")
 
-        # Basic check that required columns are selected
         if not date_col or not value_col:
              print("Missing required column selections (Date and Value)")
              return jsonify({"error": "Missing required column selections (Date and Value). Please select both."}), 400
 
-        # Basic check that forecastPeriods is a positive integer
         try:
             forecast_periods = int(forecast_periods_str)
             if forecast_periods <= 0:
@@ -198,17 +163,14 @@ def run_forecast():
         return jsonify({"error": "Failed to process forecasting request inputs.", "details": str(e)}), 400
 
 
-    # >>>>> START OF DATA PROCESSING AND FORECASTING LOGIC <<<<<
+    # --- Data Processing and Preparation ---
     try:
-        # Reset file pointer to the beginning before reading the full data
         file.seek(0)
-        # Read the entire CSV data into a pandas DataFrame
-        df = pd.read_csv(file, keep_default_na=False) # Read full data
+        df = pd.read_csv(file, keep_default_na=False)
 
-        print(f"Successfully read data. DataFrame shape: {df.shape}")
-        print(f"DataFrame columns: {df.columns.tolist()}")
+        print(f"Successfully read raw data. DataFrame shape: {df.shape}")
+        print(f"Raw DataFrame columns: {df.columns.tolist()}")
 
-        # Validate if the selected columns actually exist in the DataFrame
         required_cols = [date_col, value_col]
         if agg_col:
              required_cols.append(agg_col)
@@ -218,206 +180,376 @@ def run_forecast():
                 print(f"Selected column '{col}' not found in data.")
                 return jsonify({"error": f"Selected column '{col}' not found in uploaded data."}), 400
 
-        # Select only the relevant columns
-        selected_df = df[required_cols].copy() # Use .copy() to avoid SettingWithCopyWarning
+        selected_df = df[required_cols].copy()
 
-        # Convert date column to datetime objects
         try:
              selected_df[date_col] = pd.to_datetime(selected_df[date_col])
         except Exception as e:
              print(f"Error converting date column '{date_col}' to datetime: {e}")
              return jsonify({"error": f"Failed to convert date column '{date_col}' to datetime. Please ensure it's in a recognizable format.", "details": str(e)}), 400
 
-        # Handle aggregation if aggregation column is provided
+        # Handle initial aggregation by Date and optional Aggregation column
         if agg_col and agg_col in selected_df.columns:
              print(f"Aggregating data by Date and '{agg_col}'...")
              # Group by Date and Aggregation column, sum the value column
              aggregated_df = selected_df.groupby([date_col, agg_col])[value_col].sum().reset_index()
              print(f"Aggregation complete. Aggregated DataFrame shape: {aggregated_df.shape}")
 
-             # Now, if we need a single time series, we typically aggregate *again* by just date.
-             # Common approach for forecasting is to sum or average values across categories for each date.
-             # Let's sum values across different categories for the same date for a single time series.
              print("Further aggregating by Date only to get a single time series...")
-             ts_data = aggregated_df.groupby(date_col)[value_col].sum().reset_index()
-
-             print(f"Final time series data shape: {ts_data.shape}")
+             # Then aggregate by just Date to get a single time series per date
+             ts_data_initial = aggregated_df.groupby(date_col)[value_col].sum().reset_index()
+             print(f"Initial date-aggregated data shape: {ts_data_initial.shape}")
 
         else:
-             print("No aggregation column provided or found. Using raw date/value columns.")
-             # If no aggregation column, just use the date and value columns directly
-             ts_data = selected_df[[date_col, value_col]].copy()
-             # If multiple entries per date exist without aggregation, this will cause issues for simple models.
-             # A proper check or implicit aggregation (like sum by date) might be needed depending on expected data.
-             # For simplicity with ARIMA, let's implicitly sum values for the same date if they exist, even without an agg_col.
-             print("Implicitly summing values by Date to ensure a single time series frequency...")
-             ts_data = ts_data.groupby(date_col)[value_col].sum().reset_index()
+             print("No aggregation column provided or found. Aggregating by Date only.")
+             # If no aggregation column, aggregate by just Date to ensure one value per date
+             ts_data_initial = selected_df[[date_col, value_col]].copy()
+             ts_data_initial = ts_data_initial.groupby(date_col)[value_col].sum().reset_index()
+             print(f"Initial date-aggregated data shape: {ts_data_initial.shape}")
 
 
         # Rename columns to generic 'Date' and 'Value' for consistency
-        ts_data = ts_data.rename(columns={date_col: 'Date', value_col: 'Value'})
+        ts_data_initial = ts_data_initial.rename(columns={date_col: 'Date', value_col: 'Value'})
 
         # Sort by Date and set Date as index
-        ts_data = ts_data.sort_values('Date')
+        ts_data_initial = ts_data_initial.sort_values('Date')
+        ts_data_initial = ts_data_initial.set_index('Date')
+
+        # Convert Value to numeric and drop NaNs
+        ts_data_initial['Value'] = pd.to_numeric(ts_data_initial['Value'], errors='coerce')
+        ts_data_initial.dropna(inplace=True)
+
+        # --- Resample to Selected Forecast Frequency ---
+        print(f"Resampling data to selected frequency: {selected_frequency_name} ({selected_freq_code})...")
+        # Use .resample() with the selected frequency code, aggregate by sum
+        # .resample() will handle potential missing periods by default (fills with NaN)
+        ts_data = ts_data_initial['Value'].resample(selected_freq_code).sum().reset_index()
+
+        # Handle NaNs introduced by resampling (e.g., fill with 0 or previous value)
+        # Filling with 0 is common for sparse data after resampling
+        ts_data['Value'].fillna(0, inplace=True) # Fill NaN values with 0
+
+        # Set the resampled date column as the index again
         ts_data = ts_data.set_index('Date')
 
-        # Drop rows with NaN values in the Value column
-        ts_data.dropna(inplace=True)
-
-        # Ensure the index has a frequency if needed by the model (ARIMA can sometimes infer)
-        # If not already inferred, try setting a frequency (e.g., 'D' for daily, 'MS' for monthly start)
-        # This can be tricky and might require user input or inference logic later.
-        # For now, let statsmodels try to infer. If it fails, it might raise an error.
-        # Example: ts_data.index = pd.to_datetime(ts_data.index) # Ensure index is datetime
-        # try:
-        #     ts_data = ts_data.asfreq('D') # Attempt to set daily frequency, fills missing dates with NaN
-        #     ts_data[value_col].fillna(method='ffill', inplace=True) # Or .fillna(0) etc.
-        # except Exception as freq_e:
-        #     print(f"Could not set frequency: {freq_e}")
-            # Handle frequency issues or require specific data structure
+        print(f"Resampling complete. Final time series data shape ({selected_frequency_name}): {ts_data.shape}")
+        print(f"Final time series index frequency: {ts_data.index.freq}")
 
 
-        # --- Apply Forecasting Model (Basic ARIMA) ---
-        # A simple ARIMA(5,1,0) model as a starting point.
-        # Order (p, d, q) parameters need to be selected based on data properties (ACF/PACF, stationarity)
-        # This is a simplified example. Proper model selection is complex.
-        order = (5, 1, 0)
-        print(f"Applying ARIMA model with order {order}")
+        if ts_data.empty:
+             return jsonify({"error": "Processed time series data is empty after cleaning and resampling."}), 400
 
-        # Fit the ARIMA model
-        # The 'enforce_stationarity=False' and 'enforce_invertibility=False' are often used
-        # with auto_arima or when starting with parameters, might need adjustment.
-        # Let's try without initially.
-        try:
-            # Ensure the value column is numeric
-            ts_data['Value'] = pd.to_numeric(ts_data['Value'], errors='coerce')
-            ts_data.dropna(inplace=True) # Drop rows where Value couldn't be converted
-
-            if ts_data.empty:
-                 return jsonify({"error": "Processed data is empty after cleaning."}), 400
-            if ts_data.shape[0] < 10: # Basic check for enough data points
-                 return jsonify({"error": "Not enough data points for forecasting. Need at least 10."}), 400
+        # Determine minimum data points needed for all models
+        # ARIMA(5,1,0) needs at least 6 points (p+d+q+1, but effectively more for stability)
+        # Simple models might need fewer, but let's set a reasonable minimum like 10
+        min_data_points = 10
+        if ts_data.shape[0] < min_data_points:
+             return jsonify({"error": f"Not enough data points ({ts_data.shape[0]}) after resampling for forecasting. Need at least {min_data_points} historical data points at the selected frequency."}), 400
+        # Also check if enough data exists relative to forecast periods (redundant if min_data_points is > forecast_periods, but good check)
+        if ts_data.shape[0] <= forecast_periods:
+             return jsonify({"error": f"Number of historical data points ({ts_data.shape[0]}) after resampling is not enough to forecast {forecast_periods} periods. Need more historical data than forecast periods."}), 400
 
 
-            model = ARIMA(ts_data['Value'], order=order)
-            model_fit = model.fit()
-            print("ARIMA model fitted successfully.")
-            # print(model_fit.summary()) # Optional: print model summary in logs
+        # --- Train/Test Split for Evaluation ---
+        # Use 80% for training, 20% for testing
+        train_size = int(len(ts_data) * 0.8)
+        train_data, test_data = ts_data[0:train_size], ts_data[train_size:]
+        print(f"Train data shape: {train_data.shape}, Test data shape: {test_data.shape}")
 
-            # Generate forecast
-            # predict() gives in-sample predictions, forecast() gives out-of-sample
-            # Use forecast() for future periods
-            forecast_result = model_fit.forecast(steps=forecast_periods)
-            # get_forecast() provides confidence intervals
-            forecast_steps = model_fit.get_forecast(steps=forecast_periods)
+        # Ensure test set is not empty
+        if test_data.empty:
+             # If test set is empty, maybe the dataset is too small for split,
+             # or train_size is the exact length. Adjust train_size.
+             if len(ts_data) > 1: # Need at least 2 points to have a test set of size 1
+                 train_size = len(ts_data) - 1 # Use last point for test if data >= 2
+                 train_data, test_data = ts_data[0:train_size], ts_data[train_size:]
+                 print(f"Adjusted split: Train data shape: {train_data.shape}, Test data shape: {test_data.shape}")
+             else:
+                 # Cannot perform split if data is too small
+                 print("Dataset too small to perform train/test split for evaluation.")
+                 # Proceed without evaluation, or return error? For now, proceed without evaluation.
+                 perform_evaluation = False
+        else:
+            perform_evaluation = True
 
-            # Extract forecast values and confidence intervals
-            forecast_values = forecast_steps.predicted_mean
-            conf_int = forecast_steps.conf_int() # Returns DataFrame with lower and upper bounds
 
-            # Create a date index for the forecast periods
-            # Assuming the data is at a regular frequency (e.g., daily, monthly)
-            # Get the last date from the training data
-            last_date = ts_data.index[-1]
-            # Infer the frequency (e.g., 'D', 'MS') - this can be tricky if index has no freq
-            # If ts_data.index.freq is None, try guessing or require user input later.
-            # A simple approach is to generate dates based on the assumed frequency (e.g., daily)
-            # or just generate a sequence of dates relative to the last date.
-            # Let's try inferring or assuming a frequency for simplicity now.
+        # --- Implement and Evaluate Multiple Models ---
+        evaluation_results = {}
+        forecast_results_all_models = {}
+        best_method = None
+        lowest_rmse = np.inf
+
+        # Define models to run (only those that can be fitted/evaluated)
+        models_to_run = ['ARIMA', 'ETS', 'SMA'] # Removed WMA for simplicity initially
+
+
+        for method_name in models_to_run:
             try:
-                 forecast_index = pd.date_range(start=last_date, periods=forecast_periods + 1, freq=ts_data.index.freq or pd.infer_freq(ts_data.index))[1:] # Exclude last training date
-                 # If freq is None and infer_freq fails, this line will raise an error.
-                 # A robust solution needs better frequency handling.
-            except Exception as freq_gen_e:
-                 print(f"Could not generate forecast date index. Frequency issue? {freq_gen_e}")
-                 # Fallback: Generate simple dates relative to last date (e.g., daily assumed)
-                 # This assumes daily data if frequency cannot be inferred.
-                 print("Attempting date generation assuming daily frequency...")
-                 forecast_index = pd.date_range(start=last_date, periods=forecast_periods + 1, freq='D')[1:] # Assume daily if freq is None
+                print(f"\nRunning and evaluating {method_name}...")
+                model_forecast_data = None
+                test_rmse = None
+                model_fit_obj = None # Store fitted model object if needed for full forecast later
+
+                # --- Fit and Predict on Test Set (for evaluation) ---
+                if method_name == 'ARIMA':
+                    # ARIMA order (p, d, q) - still using fixed for now
+                    order = (5, 1, 0)
+                    if len(train_data) <= order[0] + order[1] + order[2]: # Check if enough data for order
+                         print(f"Skipping ARIMA: Not enough train data ({len(train_data)}) for order {order}.")
+                         continue # Skip to next method if not enough data
+                    model = ARIMA(train_data['Value'], order=order)
+                    model_fit = model.fit()
+                    model_fit_obj = model_fit # Store fitted object
+                    # Predict on the test set periods
+                    test_predictions = model_fit.predict(start=test_data.index[0], end=test_data.index[-1])
+
+                elif method_name == 'ETS':
+                    # Simple Exponential Smoothing
+                    # Use auto-optimized smoothing level (alpha=None) or a fixed one (e.g., 0.2)
+                    model = SimpleExpSmoothing(train_data['Value'])
+                    model_fit = model.fit(optimized=True) # Optimize alpha
+                    model_fit_obj = model_fit # Store fitted object
+                    # Predict on the test set periods
+                     # forecast() predicts *out* of sample. Need predict() for in-sample test set dates.
+                     # Note: ETS predict() might have different start/end behavior than ARIMA
+                     # Simpler: Use forecast() starting from the last train date for length of test set
+                    test_predictions = model_fit.forecast(steps=len(test_data))
+                    # Align predictions index with test_data index for RMSE calculation
+                    if len(test_predictions) == len(test_data):
+                         test_predictions.index = test_data.index
+                    else:
+                         # If lengths mismatch (unexpected), handle error or skip
+                         print(f"Warning: ETS test prediction length ({len(test_predictions)}) mismatch with test data length ({len(test_data)}). Skipping evaluation.")
+                         perform_evaluation = False # Disable evaluation if mismatch
+                         continue # Skip evaluation for this model
+
+                elif method_name == 'SMA':
+                     # Simple Moving Average - use a rolling window on the train data
+                     window_size = 7 # Example window size (e.g., 7 for weekly data)
+                     if len(train_data) < window_size:
+                          print(f"Skipping SMA: Not enough train data ({len(train_data)}) for window size {window_size}.")
+                          continue # Skip if not enough data for window
+
+                     # Calculate rolling mean on train data
+                     rolling_mean = train_data['Value'].rolling(window=window_size).mean()
+                     # The prediction for the test set is the *last* calculated rolling mean value,
+                     # extended flat for the length of the test set. SMA predicts a constant value.
+                     if not rolling_mean.empty and not np.isnan(rolling_mean.iloc[-1]):
+                         test_predictions = pd.Series([rolling_mean.iloc[-1]] * len(test_data), index=test_data.index)
+                     else:
+                         print("Skipping SMA evaluation: Rolling mean is empty or NaN at the end.")
+                         continue # Skip if rolling mean is invalid
+
+                # --- Calculate RMSE on Test Set ---
+                if perform_evaluation and test_data.shape[0] > 0:
+                    # Drop any NaNs that might exist in test_predictions if prediction failed for some points
+                    # Align indices just in case before calculating RMSE
+                    aligned_test_data, aligned_test_predictions = test_data['Value'].align(test_predictions, join='inner')
+                    if len(aligned_test_data) > 0:
+                        test_rmse = rmse(aligned_test_data, aligned_test_predictions)
+                        print(f"{method_name} Test RMSE: {test_rmse}")
+                        evaluation_results[method_name] = test_rmse
+
+                        # Update best method if current RMSE is lower
+                        if test_rmse < lowest_rmse:
+                            lowest_rmse = test_rmse
+                            best_method = method_name
+                    else:
+                         print(f"Skipping {method_name} RMSE calculation: No overlapping index for test data and predictions.")
+                         evaluation_results[method_name] = float('inf') # Assign high RMSE if cannot calculate
+                else:
+                     print("Skipping evaluation: Not enough test data or evaluation disabled.")
+                     evaluation_results[method_name] = float('inf') # Assign high RMSE if cannot evaluate
 
 
-            # Combine forecast results into a list of dictionaries
-            forecast_data = []
-            for i in range(forecast_periods):
-                 forecast_data.append({
-                     "Date": forecast_index[i].strftime('%Y-%m-%d'), # Format date as string
-                     "ForecastValue": forecast_values.iloc[i],
-                     "LowerBound": conf_int.iloc[i, 0],
-                     "UpperBound": conf_int.iloc[i, 1]
-                 })
+                # --- Generate Forecast on Full Data ---
+                # Use the model fitted on the *full* ts_data for the final forecast
+                if method_name == 'ARIMA':
+                     if len(ts_data) <= order[0] + order[1] + order[2]:
+                          print(f"Skipping full ARIMA forecast: Not enough data ({len(ts_data)}) for order {order}.")
+                          continue # Skip forecast if not enough data for full model
+                     # Re-fit ARIMA on full data
+                     full_model = ARIMA(ts_data['Value'], order=order)
+                     full_model_fit = full_model.fit()
+                     forecast_steps_result = full_model_fit.get_forecast(steps=forecast_periods)
+                     forecast_values = forecast_steps_result.predicted_mean
+                     conf_int = forecast_steps_result.conf_int()
 
-            print(f"Forecast generated for {forecast_periods} periods.")
+                elif method_name == 'ETS':
+                     if len(ts_data) < 2: # Need at least 2 points for ETS usually
+                          print(f"Skipping full ETS forecast: Not enough data ({len(ts_data)}).")
+                          continue
+                     # Re-fit ETS on full data
+                     full_model = SimpleExpSmoothing(ts_data['Value'])
+                     full_model_fit = full_model.fit(optimized=True)
+                     # forecast() for out-of-sample predictions
+                     forecast_steps_result = full_model_fit.forecast(steps=forecast_periods)
+                     # Simple ETS doesn't provide confidence intervals by default in forecast() result
+                     # We can calculate an approximate CI based on model std error if needed, but skipping for now.
+                     # For simplicity, let's just set CI to forecast value for now.
+                     forecast_values = forecast_steps_result
+                     conf_int = pd.DataFrame({
+                         0: forecast_values, # Lower Bound = Forecast Value (placeholder)
+                         1: forecast_values  # Upper Bound = Forecast Value (placeholder)
+                     }, index=forecast_values.index)
 
-            # Return the forecast results
-            return jsonify({
-                "message": "Forecast generated successfully",
-                "filename": file.filename,
-                "selectedColumns": selected_columns,
-                "forecastPeriods": forecast_periods,
-                "forecastResults": forecast_data # <--- Include the actual forecast data
-            }), 200
 
-        except Exception as e:
-            print(f"Error during ARIMA model fitting or forecasting: {e}")
-            # Catch errors specific to model fitting/forecasting
-            return jsonify({"error": "Failed to run forecasting model.", "details": str(e)}), 500
+                elif method_name == 'SMA':
+                     if len(ts_data) < window_size:
+                          print(f"Skipping full SMA forecast: Not enough data ({len(ts_data)}) for window size {window_size}.")
+                          continue
+                     # Calculate rolling mean on full data
+                     full_rolling_mean = ts_data['Value'].rolling(window=window_size).mean()
+                     # The forecast is the last valid rolling mean value, extended flat
+                     if not full_rolling_mean.empty and not np.isnan(full_rolling_mean.iloc[-1]):
+                         forecast_value = full_rolling_mean.iloc[-1]
+                         forecast_values = pd.Series([forecast_value] * forecast_periods)
+                         # SMA doesn't provide standard CI. Use a simple placeholder or calculation.
+                         # Placeholder CI = forecast value
+                         conf_int = pd.DataFrame({
+                             0: forecast_values, # Lower Bound
+                             1: forecast_values  # Upper Bound
+                         }, index=forecast_values.index)
+                     else:
+                         print("Skipping full SMA forecast: Rolling mean is invalid at the end.")
+                         continue # Skip forecast if rolling mean is invalid
+
+
+                # --- Generate Forecast Date Index for Full Forecast ---
+                # Need to ensure this index matches the forecast_values index length
+                last_date = ts_data.index[-1]
+                # Use the frequency of the resampled data's index
+                # pd.infer_freq might fail if index has no freq after resample/fillna - check ts_data.index.freq
+                used_freq = ts_data.index.freq # Use the frequency from the resampled index
+
+                if used_freq is None:
+                    print("Warning: Resampled index frequency is None. Attempting to infer or falling back to Daily for forecast index generation.")
+                    # Fallback logic if frequency is None after resampling/filling
+                    try:
+                         # Attempt to infer frequency from the resampled index with NaNs filled
+                         # This might still be None if data is truly irregular or very short
+                         inferred_freq_after_resample = pd.infer_freq(ts_data.index)
+                         used_freq = inferred_freq_after_resample if inferred_freq_after_resample else 'D' # Use inferred or default to Daily
+                         print(f"Using frequency '{used_freq}' for forecast index generation.")
+                    except Exception as infer_e:
+                         print(f"Could not infer frequency after resampling/fillna: {infer_e}. Defaulting to Daily.")
+                         used_freq = 'D' # Default if infer fails
+
+                try:
+                     # Generate dates starting *after* the last training date, using the determined frequency
+                     # Need +1 period to get the date *after* the last historical date
+                     forecast_index_full = pd.date_range(start=last_date, periods=forecast_periods + 1, freq=used_freq)[1:] # Exclude last training date
+
+                except Exception as freq_gen_e:
+                     print(f"Could not generate forecast date index with frequency '{used_freq}'. Error: {freq_gen_e}")
+                     # Fallback to a simple date range generation if freq generation fails
+                     print("Falling back to simple date range generation assuming daily offset...")
+                     forecast_index_full = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_periods) # Simple daily offset
+
+
+                # Ensure forecast values index matches forecast date index length
+                if len(forecast_index_full) != len(forecast_values):
+                     print(f"Warning: Mismatch between forecast index length ({len(forecast_index_full)}) and values length ({len(forecast_values)}) for {method_name}. Adjusting index length.")
+                     # Adjust the index length to match the values length if mismatch occurs
+                     # This might mean the dates are incorrect if freq generation failed
+                     forecast_index_full = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=len(forecast_values)) # Simple daily offset
+
+
+                # Combine forecast results for this method into a list of dictionaries
+                method_forecast_data = []
+                # Ensure iteration is based on the length of forecast_values
+                for i in range(len(forecast_values)):
+                     method_forecast_data.append({
+                         "Date": forecast_index_full[i].strftime('%Y-%m-%d'),
+                         "ForecastValue": float(forecast_values.iloc[i]),
+                         "LowerBound": float(conf_int.iloc[i, 0]) if conf_int.shape[1] > 0 else float(forecast_values.iloc[i]), # Handle models without CI easily
+                         "UpperBound": float(conf_int.iloc[i, 1]) if conf_int.shape[1] > 1 else float(forecast_values.iloc[i]) # Handle models without CI easily
+                     })
+
+                forecast_results_all_models[method_name] = {
+                     "evaluation_rmse": test_rmse if test_rmse is not None else "N/A", # Include test RMSE
+                     "forecast_data": method_forecast_data # The forecast points for this method
+                }
+                print(f"{method_name} forecast generated.")
+
+            except Exception as e:
+                print(f"Error running or evaluating {method_name}: {e}")
+                forecast_results_all_models[method_name] = {
+                     "evaluation_rmse": float('inf'), # Assign very high RMSE on error
+                     "forecast_data": [], # Return empty forecast data
+                     "error": str(e) # Include the error message
+                }
+                evaluation_results[method_name] = float('inf') # Ensure it's not considered 'best'
+
+
+        # Determine the best method based on lowest evaluation RMSE
+        if best_method is None and perform_evaluation and evaluation_results:
+             # If best_method is still None but evaluation was attempted and results exist,
+             # find the minimum RMSE among the methods that didn't fail evaluation entirely.
+             valid_eval_results = {k: v for k, v in evaluation_results.items() if v != float('inf')}
+             if valid_eval_results:
+                  best_method = min(valid_eval_results, key=valid_eval_results.get)
+                  print(f"Best method determined based on evaluation: {best_method}")
+             else:
+                  print("Could not determine best method as all evaluations failed.")
+                  best_method = "N/A"
+        elif best_method is None:
+             best_method = "N/A" # If evaluation was skipped or no methods ran
+
+
+        # --- Return Final Results ---
+        print("All models run. Formatting final response.")
+        return jsonify({
+            "message": "Forecasts generated successfully",
+            "filename": file.filename,
+            "selectedColumns": selected_columns,
+            "selectedFrequency": selected_frequency_name,
+            "forecastPeriods": forecast_periods,
+            "bestMethod": best_method, # <--- Indicate the best method
+            "modelResults": forecast_results_all_models # <--- Include results for all models
+        }), 200
+
 
     except Exception as e:
-        # Catch errors during data reading or initial processing steps
-        print(f"Error processing inputs or reading full data in /forecast: {e}")
-        return jsonify({"error": "Failed to process forecasting request.", "details": str(e)}), 500
+        # Catch errors during data reading, processing, or validation before model loop
+        print(f"Fatal Error during data processing or model loop setup in /forecast: {e}")
+        return jsonify({"error": f"Failed to process uploaded data or setup forecasting models. Details: {str(e)}"}), 500
+
 
 # --- Frontend Serving Routes ---
-
-# Basic / route (should ideally be hit only if static file serving fails)
-# Keeping this here but the serve_root_index should take precedence if defined after it
 def index():
     """Basic route to confirm backend is running."""
-    print("--- HITTING BASIC INDEX ROUTE (Frontend Not Served) ---") # More specific debug log
+    print("--- HITTING BASIC INDEX ROUTE (Frontend Not Served) ---")
     return "Time Series Forecaster Backend is Running! Navigate to the frontend URL."
 
 
-# Dedicated route for the root path '/' to serve index.html
-# PLACE THIS FUNCTION AND ITS DECORATOR *AFTER* the basic index() function
 @app.route('/')
 def serve_root_index():
     """Serve index.html for the root path."""
-    # --- This should be hit if this route definition is evaluated last for '/' ---
-    print("--- ENTERING SERVE ROOT INDEX FUNCTION ---") # Debug log
-    # -------------------------------------------------
+    print("--- ENTERING SERVE ROOT INDEX FUNCTION ---")
 
-    # The path to index.html within the static folder
     index_html_path = os.path.join(app.static_folder, 'index.html')
     print(f"Root path requested. Trying to serve index.html from: {index_html_path}")
 
-    # Check if the index.html file exists in the built static folder
     if os.path.exists(index_html_path):
          print("index.html found at expected static path for root!")
-         # Use send_from_directory to safely serve the index.html file.
-         # The second argument 'index.html' is the filename relative to the static_folder.
          return send_from_directory(app.static_folder, 'index.html')
     else:
-         # If index.html is not found, the frontend build likely failed
          print("index.html NOT found at the expected static folder path for root.")
          return "Frontend not built or configured correctly (index.html missing at root)", 404
 
 
-# Catch-all route for all OTHER paths (<path:path>)
-# This route will handle requests for /static/..., /forecast, etc., but NOT the root /
-# Keep this function definition *after* both '/' routes if possible, or at least after serve_root_index.
 @app.route('/<path:path>')
 def serve_static_files(path):
     """
     Serve static files from the frontend build directory for non-root paths.
     """
-    print("--- ENTERING SERVE STATIC FILES FUNCTION (Non-Root) ---") # Debug log
+    print("--- ENTERING SERVE STATIC FILES FUNCTION (Non-Root) ---")
     print(f"Attempting to serve path: /{path}")
 
-    # Construct the full path to the requested file within the static folder directory
     requested_file = os.path.join(app.static_folder, path)
     print(f"Constructed requested file path: {requested_file}")
 
-    # Basic security check (similar to before)
     try:
         static_folder_abs = os.path.abspath(app.static_folder)
         requested_file_abs = os.path.abspath(requested_file)
@@ -425,30 +557,24 @@ def serve_static_files(path):
              print(f"Security check failed: {requested_file_abs} is not in {static_folder_abs}")
              return "Forbidden", 403
     except Exception as e:
-            print(f"Error during path normalization/check: {e}")
-            return "Internal Server Error during path check", 500
+        print(f"Error during path normalization/check: {e}")
+        return "Internal Server Error during path check", 500
 
-    # Check if the specific requested file exists within the static folder.
+
     if os.path.exists(requested_file):
          print(f"Serving static file: {requested_file}")
          return send_from_directory(app.static_folder, path)
     else:
-        # If the specific file was not found, it's likely a client-side route.
-        # Serve index.html as a fallback for client-side routing.
         print(f"Requested file not found: {requested_file}. Falling back to serving index.html for client-side routing.")
         index_html_path = os.path.join(app.static_folder, 'index.html')
         if os.path.exists(index_html_path):
              print("index.html found for fallback!")
              return send_from_directory(app.static_folder, 'index.html')
-         # Pay close attention to indentation here!
         else:
-              print("index.html NOT found even for fallback.")
-              return "Resource not found and fallback index.html is missing", 404
+             print("index.html NOT found even for fallback.")
+             return "Resource not found and fallback index.html is missing", 404
 
 
-# This block is primarily for running the Flask development server locally.
-# Render's production environment uses a WSGI server like Gunicorn (configured in the Start Command)
-# and will ignore this __main__ block.
 if __name__ == '__main__':
     print("Running Flask app locally (development mode)")
     port = int(os.environ.get('PORT', 5000))
