@@ -562,7 +562,7 @@ def run_forecast():
                          "forecast_data": [],
                          "error": f"Runtime error during forecast generation: {str(e)}"
                      }
-                 evaluation_results[method_name] = float('inf') # Ensure it's not considered 'best'
+                evaluation_results[method_name] = float('inf') # Ensure it's not considered 'best'
 
 
         # Determine the best method based on lowest evaluation RMSE among successful evaluations
