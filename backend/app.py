@@ -343,7 +343,7 @@ def run_forecast():
                               print(f"Warning: ETS test prediction length ({len(test_predictions)}) mismatch with test data length ({len(test_data)}).")
                               test_predictions = None # Invalidate prediction
 
-                     except Exception as ets_error:
+                    except Exception as ets_error:
                          print(f"ETS fitting failed on train data: {ets_error}")
                          continue # Skip evaluation and full forecast on fit failure
 
