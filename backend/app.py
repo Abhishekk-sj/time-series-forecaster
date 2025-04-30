@@ -101,7 +101,7 @@ def run_forecast():
          print(f"Created upload folder: {app.config['UPLOAD_FOLDER']}")
 
     if 'file' not in request.files:
-        print("No 'file' part in /forecast request.files")
+        print("No 'file' part in request.files")
         return jsonify({"error": "No file part in the request for forecasting"}), 400
     file = request.files['file']
     print(f"Received file for forecasting: {file.filename}")
@@ -289,8 +289,8 @@ def run_forecast():
         best_method = None
         lowest_rmse = np.inf
 
-        # Define models to run
-        models_to_run = ['ARIMA', 'ETS', 'SMA']
+        # Define models to run (only those that can be fitted/evaluated)
+        models_to_run = ['ARIMA', 'ETS', 'SMA'] # Removed WMA for simplicity initially
 
 
         for method_name in models_to_run:
@@ -298,6 +298,7 @@ def run_forecast():
                 print(f"\nRunning and evaluating {method_name}...")
                 model_forecast_data = None
                 test_rmse = None
+                model_fit_obj = None # Store fitted model object if needed for full forecast later
 
                 # --- Fit and Predict on Test Set (for evaluation) ---
                 if method_name == 'ARIMA':
@@ -343,7 +344,7 @@ def run_forecast():
                               print(f"Warning: ETS test prediction length ({len(test_predictions)}) mismatch with test data length ({len(test_data)}).")
                               test_predictions = None # Invalidate prediction
 
-                    except Exception as ets_error:
+                     except Exception as ets_error:
                          print(f"ETS fitting failed on train data: {ets_error}")
                          continue # Skip evaluation and full forecast on fit failure
 
@@ -363,7 +364,6 @@ def run_forecast():
                      else:
                          print("Skipping SMA evaluation: Rolling mean is invalid at the end.")
                          continue # Skip if rolling mean is invalid
-
 
                 # --- Calculate RMSE on Test Set ---
                 if perform_evaluation and test_data.shape[0] > 0 and test_predictions is not None and not test_predictions.empty:
